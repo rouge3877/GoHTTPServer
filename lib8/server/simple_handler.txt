@@ -1,0 +1,268 @@
+package server
+
+import (
+	"fmt"
+	"html"
+	"io"
+	"mime"
+	"net"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// SimpleHTTPRequestHandler 实现简单的HTTP请求处理器
+type SimpleHTTPRequestHandler struct {
+	*BaseHTTPRequestHandler
+	Directory string // 提供服务的目录
+}
+
+// NewSimpleHTTPRequestHandler 创建一个新的简单HTTP请求处理器
+func NewSimpleHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory string) *SimpleHTTPRequestHandler {
+	baseHandler := NewBaseHTTPRequestHandler(conn, server, nil)
+	return &SimpleHTTPRequestHandler{
+		BaseHTTPRequestHandler: baseHandler,
+		Directory:              directory,
+	}
+}
+
+// DoGET 处理GET请求
+func (h *SimpleHTTPRequestHandler) DoGET() {
+	f, err := h.SendHead()
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	// 发送文件内容
+	io.Copy(h.WFile, f)
+	h.WFile.Flush()
+}
+
+// DoHEAD 处理HEAD请求
+func (h *SimpleHTTPRequestHandler) DoHEAD() {
+	f, err := h.SendHead()
+	if err != nil {
+		return
+	}
+	f.Close()
+}
+
+// DoPOST 处理POST请求，简单实现为与GET相同
+func (h *SimpleHTTPRequestHandler) DoPOST() {
+	h.DoGET()
+}
+
+// TranslatePath 将URL路径转换为文件系统路径
+func (h *SimpleHTTPRequestHandler) TranslatePath(urlPath string) string {
+	// 解码URL路径
+	try := func(urlPath string) string {
+		// 去除查询参数
+		if idx := strings.Index(urlPath, "?"); idx != -1 {
+			urlPath = urlPath[:idx]
+		}
+
+		// 解码URL
+		urlPath, err := url.PathUnescape(urlPath)
+		if err != nil {
+			return ""
+		}
+
+		// 规范化路径
+		urlPath = path.Clean(urlPath)
+
+		// 确保路径不会超出根目录
+		if !strings.HasPrefix(urlPath, "/") {
+			urlPath = "/" + urlPath
+		}
+
+		// 将URL路径转换为文件系统路径
+		result := filepath.Join(h.Directory, urlPath[1:])
+		return result
+	}
+
+	result := try(urlPath)
+	if result == "" {
+		h.SendError(BAD_REQUEST, "Bad URL path")
+	}
+	return result
+}
+
+// GuessType 猜测文件的MIME类型
+func (h *SimpleHTTPRequestHandler) GuessType(path string) string {
+	contentType := mime.TypeByExtension(filepath.Ext(path))
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return contentType
+}
+
+// ListDirectory 列出目录内容
+func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) {
+	// 读取目录内容
+	dir, err := os.Open(path)
+	if err != nil {
+		h.SendError(NOT_FOUND, "No permission to list directory")
+		return nil, err
+	}
+
+	// 获取目录项
+	entries, err := dir.Readdir(-1)
+	dir.Close()
+	if err != nil {
+		h.SendError(INTERNAL_SERVER_ERROR, "Error reading directory")
+		return nil, err
+	}
+
+	// 排序目录项
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Name() < entries[j].Name()
+	})
+
+	// 生成HTML页面
+	displayPath := html.EscapeString(h.Path)
+	var buf strings.Builder
+
+	buf.WriteString(fmt.Sprintf("<!DOCTYPE HTML>\n"))
+	buf.WriteString(fmt.Sprintf("<html>\n<head>\n"))
+	buf.WriteString(fmt.Sprintf("<meta charset=\"utf-8\">\n"))
+	buf.WriteString(fmt.Sprintf("<title>Directory listing for %s</title>\n", displayPath))
+	buf.WriteString(fmt.Sprintf("</head>\n<body>\n"))
+	buf.WriteString(fmt.Sprintf("<h1>Directory listing for %s</h1>\n", displayPath))
+	buf.WriteString(fmt.Sprintf("<hr>\n<ul>\n"))
+
+	// 添加返回上级目录的链接
+	if h.Path != "/" {
+		buf.WriteString(fmt.Sprintf("<li><a href=\"%s\">../</a></li>\n", path.Dir(h.Path)+"/"))
+	}
+
+	// 添加目录项
+	for _, entry := range entries {
+		name := entry.Name()
+		link := url.PathEscape(name)
+		if entry.IsDir() {
+			link += "/"
+			name += "/"
+		}
+		size := "-"
+		if !entry.IsDir() {
+			size = strconv.FormatInt(entry.Size(), 10)
+		}
+		mtime := entry.ModTime().Format(time.RFC1123)
+		buf.WriteString(fmt.Sprintf("<li><a href=\"%s\">%s</a> %s %s</li>\n", link, html.EscapeString(name), size, mtime))
+	}
+
+	buf.WriteString(fmt.Sprintf("</ul>\n<hr>\n</body>\n</html>\n"))
+
+	// 发送响应
+	h.SendResponse(OK, "")
+	h.SendHeader("Content-Type", "text/html; charset=utf-8")
+	h.SendHeader("Content-Length", strconv.Itoa(buf.Len()))
+	h.EndHeaders()
+
+	// 创建临时文件并写入内容
+	tmpFile, err := os.CreateTemp("", "dirlist")
+	if err != nil {
+		h.SendError(INTERNAL_SERVER_ERROR, "Error creating temporary file")
+		return nil, err
+	}
+
+	tmpFile.WriteString(buf.String())
+	tmpFile.Seek(0, 0)
+	return tmpFile, nil
+}
+
+// SendHead 发送文件头信息
+func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
+	path := h.TranslatePath(h.Path)
+	f, err := os.Open(path)
+	if err != nil {
+		h.SendError(NOT_FOUND, "File not found")
+		return nil, err
+	}
+
+	// 获取文件信息
+	stat, err := f.Stat()
+	if err != nil {
+		h.SendError(INTERNAL_SERVER_ERROR, "File error")
+		return nil, err
+	}
+
+	// 如果是目录，列出目录内容
+	if stat.IsDir() {
+		f.Close()
+		if !strings.HasSuffix(h.Path, "/") {
+			// 重定向到带斜杠的URL
+			h.SendResponse(MOVED_PERMANENTLY, "")
+			h.SendHeader("Location", h.Path+"/")
+			h.EndHeaders()
+			return nil, fmt.Errorf("redirect to %s/", h.Path)
+		}
+		return h.ListDirectory(path)
+	}
+
+	// 发送文件内容
+	h.SendResponse(OK, "")
+	h.SendHeader("Content-Type", h.GuessType(path))
+	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	h.SendHeader("Last-Modified", stat.ModTime().Format(time.RFC1123))
+	h.EndHeaders()
+	return f, nil
+}
+
+// CGIHTTPRequestHandler 实现CGI HTTP请求处理器
+type CGIHTTPRequestHandler struct {
+	*SimpleHTTPRequestHandler
+	CGIDirectories []string // CGI脚本目录列表
+}
+
+// NewCGIHTTPRequestHandler 创建一个新的CGI HTTP请求处理器
+func NewCGIHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory string) *CGIHTTPRequestHandler {
+	simpleHandler := NewSimpleHTTPRequestHandler(conn, server, directory)
+	return &CGIHTTPRequestHandler{
+		SimpleHTTPRequestHandler: simpleHandler,
+		CGIDirectories:           []string{"/cgi-bin", "/htbin"},
+	}
+}
+
+// IsCGIScript 检查路径是否为CGI脚本
+func (h *CGIHTTPRequestHandler) IsCGIScript(path string) bool {
+	dir, _ := filepath.Split(path)
+	dir = filepath.ToSlash(dir)
+	for _, cgiDir := range h.CGIDirectories {
+		if strings.HasPrefix(dir, cgiDir) {
+			return true
+		}
+	}
+	return false
+}
+
+// DoGET 处理GET请求
+func (h *CGIHTTPRequestHandler) DoGET() {
+	if h.IsCGIScript(h.Path) {
+		h.RunCGI()
+	} else {
+		h.SimpleHTTPRequestHandler.DoGET()
+	}
+}
+
+// DoPOST 处理POST请求
+func (h *CGIHTTPRequestHandler) DoPOST() {
+	if h.IsCGIScript(h.Path) {
+		h.RunCGI()
+	} else {
+		h.SimpleHTTPRequestHandler.DoPOST()
+	}
+}
+
+// RunCGI 运行CGI脚本
+func (h *CGIHTTPRequestHandler) RunCGI() {
+	// 注意：这是一个简化的实现，实际上需要更多的安全检查和错误处理
+	h.SendError(NOT_IMPLEMENTED, "CGI script execution not implemented")
+	// 在实际实现中，这里应该执行CGI脚本并处理其输出
+}
