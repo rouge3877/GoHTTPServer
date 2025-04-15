@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"sync"
 	_ "time"
@@ -13,7 +12,6 @@ import (
 // HTTPServer 实现基本的HTTP服务器功能
 type HTTPServer struct {
 	Addr           string             // 服务器地址
-	Handler        http.Handler       // 请求处理器
 	ServerName     string             // 服务器名称
 	ServerPort     int                // 服务器端口
 	AllowReuse     bool               // 允许地址重用
@@ -24,11 +22,10 @@ type HTTPServer struct {
 }
 
 // NewHTTPServer 创建一个新的HTTP服务器
-func NewHTTPServer(addr string, handler http.Handler) *HTTPServer {
+func NewHTTPServer(addr string) *HTTPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &HTTPServer{
 		Addr:           addr,
-		Handler:        handler,
 		AllowReuse:     true,
 		ShutdownCtx:    ctx,
 		ShutdownCancel: cancel,
@@ -90,11 +87,7 @@ func (s *HTTPServer) Serve() error {
 			defer c.Close()
 
 			// 创建请求处理器并处理请求
-			handler := &BaseHTTPRequestHandler{
-				Conn:           c,
-				Server:         s,
-				RequestHandler: s.Handler,
-			}
+			handler := NewSimpleHTTPRequestHandler(c, "./")
 			handler.Handle()
 		}(conn)
 	}
@@ -117,9 +110,9 @@ type ThreadingHTTPServer struct {
 }
 
 // NewThreadingHTTPServer 创建一个新的支持并发的HTTP服务器
-func NewThreadingHTTPServer(addr string, handler http.Handler) *ThreadingHTTPServer {
+func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 	return &ThreadingHTTPServer{
-		HTTPServer:    NewHTTPServer(addr, handler),
+		HTTPServer:    NewHTTPServer(addr),
 		DaemonThreads: true,
 	}
 }
@@ -127,8 +120,7 @@ func NewThreadingHTTPServer(addr string, handler http.Handler) *ThreadingHTTPSer
 // StartServer 启动HTTP服务器的便捷函数
 func StartServer(port int, directory string) error {
 	addr := fmt.Sprintf(":%d", port)
-	handler := http.FileServer(http.Dir(directory))
-	server := NewThreadingHTTPServer(addr, handler)
+	server := NewThreadingHTTPServer(addr)
 
 	fmt.Printf("Serving HTTP on 0.0.0.0 port %d (http://localhost:%d/) ...\n", port, port)
 	return server.Serve()
@@ -141,9 +133,9 @@ type DualStackServer struct {
 }
 
 // NewDualStackServer 创建一个新的支持双栈的HTTP服务器
-func NewDualStackServer(addr string, handler http.Handler, directory string) *DualStackServer {
+func NewDualStackServer(addr string, directory string) *DualStackServer {
 	return &DualStackServer{
-		ThreadingHTTPServer: NewThreadingHTTPServer(addr, handler),
+		ThreadingHTTPServer: NewThreadingHTTPServer(addr),
 		Directory:           directory,
 	}
 }

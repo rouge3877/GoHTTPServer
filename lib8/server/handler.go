@@ -7,7 +7,6 @@ import (
 	"io"
 	"mime"
 	"net"
-	"net/http"
 	"net/textproto"
 	"net/url"
 	"os"
@@ -104,8 +103,6 @@ const defaultErrorContentType = "text/html;charset=utf-8"
 // BaseHTTPRequestHandler 实现基本的HTTP请求处理器
 type BaseHTTPRequestHandler struct {
 	Conn                  net.Conn          // 客户端连接
-	Server                *HTTPServer       // 服务器实例
-	RequestHandler        http.Handler      // 请求处理器
 	Command               string            // 请求命令（GET, POST等）
 	Path                  string            // 请求路径
 	RequestVersion        string            // 请求HTTP版本
@@ -125,11 +122,10 @@ type BaseHTTPRequestHandler struct {
 }
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
-func NewBaseHTTPRequestHandler(conn net.Conn, server *HTTPServer, handler http.Handler) *BaseHTTPRequestHandler {
+func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
+
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
-		Server:                server,
-		RequestHandler:        handler,
 		RFile:                 bufio.NewReader(conn),
 		WFile:                 bufio.NewWriter(conn),
 		CloseConnection:       true,
@@ -149,7 +145,7 @@ func GoVersion() string {
 }
 
 // Handle 处理HTTP请求
-func (h *BaseHTTPRequestHandler) Handle() {
+func (h *SimpleHTTPRequestHandler) Handle() {
 	h.CloseConnection = true
 
 	h.HandleOneRequest()
@@ -159,12 +155,17 @@ func (h *BaseHTTPRequestHandler) Handle() {
 }
 
 // HandleOneRequest 处理单个HTTP请求
-func (h *BaseHTTPRequestHandler) HandleOneRequest() {
-	fmt.Printf("AAAd\n")
+func (h *SimpleHTTPRequestHandler) HandleOneRequest() {
 	try := func() {
+
+		if h.RFile == nil {
+			fmt.Fprintf(os.Stderr, "Error: RFile is nil\n")
+			h.CloseConnection = true
+			return
+		}
+
 		// 读取请求行
 		requestLine, err := h.RFile.ReadString('\n')
-		fmt.Println("A")
 		if err != nil {
 			if err != io.EOF {
 				fmt.Fprintf(os.Stderr, "Error reading request line: %v\n", err)
@@ -193,7 +194,6 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 			// 错误已经发送，直接返回
 			return
 		}
-		fmt.Println("BB")
 		// 根据请求命令调用相应的处理方法
 		mname := "Do" + h.Command
 		method := h.GetMethod(mname)
@@ -204,7 +204,6 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 
 		// 调用处理方法
 		method()
-		fmt.Println("CCCC")
 		// 刷新响应
 		h.WFile.Flush()
 	}
@@ -220,8 +219,10 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 	try()
 }
 
-// GetMethod 根据方法名获取处理方法
-func (h *BaseHTTPRequestHandler) GetMethod(name string) func() {
+// 子类重写 GetMethod
+func (h *SimpleHTTPRequestHandler) GetMethod(name string) func() {
+	// print name
+	// fmt.Println(name)
 	switch name {
 	case "DoGET":
 		return h.DoGET
@@ -235,9 +236,8 @@ func (h *BaseHTTPRequestHandler) GetMethod(name string) func() {
 		return h.DoDELETE
 	case "DoOPTIONS":
 		return h.DoOPTIONS
-	default:
-		return nil
 	}
+	return nil
 }
 
 // ParseRequest 解析HTTP请求
@@ -537,18 +537,6 @@ func (h *BaseHTTPRequestHandler) DateTimeString() string {
 	return now.Format(time.RFC1123)
 }
 
-// DoGET 处理GET请求
-func (h *BaseHTTPRequestHandler) DoGET() {
-	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
-}
-
-// DoHEAD 处理HEAD请求
-func (h *BaseHTTPRequestHandler) DoHEAD() {
-	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
-}
-
 // DoPOST 处理POST请求
 func (h *BaseHTTPRequestHandler) DoPOST() {
 	// 默认实现，子类应该重写此方法
@@ -580,8 +568,8 @@ type SimpleHTTPRequestHandler struct {
 }
 
 // NewSimpleHTTPRequestHandler 创建一个新的简单HTTP请求处理器
-func NewSimpleHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory string) *SimpleHTTPRequestHandler {
-	baseHandler := NewBaseHTTPRequestHandler(conn, server, nil)
+func NewSimpleHTTPRequestHandler(conn net.Conn, directory string) *SimpleHTTPRequestHandler {
+	baseHandler := NewBaseHTTPRequestHandler(conn)
 	return &SimpleHTTPRequestHandler{
 		BaseHTTPRequestHandler: baseHandler,
 		Directory:              directory,
@@ -590,6 +578,7 @@ func NewSimpleHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory st
 
 // DoGET 处理GET请求
 func (h *SimpleHTTPRequestHandler) DoGET() {
+	fmt.Println("DoGET Simple")
 	f, err := h.SendHead()
 	if err != nil {
 		return
@@ -655,7 +644,7 @@ type CGIHTTPRequestHandler struct {
 
 // NewCGIHTTPRequestHandler 创建一个新的CGI HTTP请求处理器
 func NewCGIHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory string) *CGIHTTPRequestHandler {
-	simpleHandler := NewSimpleHTTPRequestHandler(conn, server, directory)
+	simpleHandler := NewSimpleHTTPRequestHandler(conn, directory)
 	return &CGIHTTPRequestHandler{
 		SimpleHTTPRequestHandler: simpleHandler,
 		CGIDirectories:           []string{"/cgi-bin", "/htbin"},
