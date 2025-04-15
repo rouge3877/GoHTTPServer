@@ -52,3 +52,8 @@ func main() {
     server.StartServer(8000, "./")
 }
 ```
+# TODO
+- [ ] 实现剩余方法
+- [ ] 重构cgihandler
+- [ ] 整理项目结构
+- [ ] 高级功能...
