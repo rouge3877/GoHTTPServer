@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
+	"strconv"
 	"sync"
 	_ "time"
 )
@@ -166,4 +168,33 @@ func (s *DualStackServer) ServerBind() error {
 	fmt.Sscanf(port, "%d", &s.ServerPort)
 
 	return nil
+}
+
+// GetNoBodyUID 获取系统中的nobody用户UID
+func GetNoBodyUID() (int, error) {
+	nobody, err := user.Lookup("nobody")
+	if err != nil {
+		return -1, err
+	}
+	uid, err := strconv.Atoi(nobody.Uid)
+	if err != nil {
+		return -1, err
+	}
+	return uid, nil
+}
+
+func Executable(path string) bool {
+	//获取文件信息
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	//检查是否是普通文件
+	if fileInfo.Mode().IsRegular() {
+		return false
+	}
+	//检查是否可执行
+	mode := fileInfo.Mode().Perm()
+	return mode&0111 != 0
+
 }
