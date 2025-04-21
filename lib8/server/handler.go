@@ -6,6 +6,7 @@ import (
 	"html"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net"
 	"net/textproto"
 	"net/url"
@@ -100,6 +101,15 @@ const defaultErrorMessageFormat = `<!DOCTYPE HTML>
 
 const defaultErrorContentType = "text/html;charset=utf-8"
 
+type ProcessMethod interface {
+	DoGET()
+	DoHEAD()
+	DoPOST()
+	DoPUT()
+	DoDELETE()
+	DoOPTIONS()
+}
+
 // BaseHTTPRequestHandler 实现基本的HTTP请求处理器
 type BaseHTTPRequestHandler struct {
 	Conn                  net.Conn          // 客户端连接
@@ -119,6 +129,8 @@ type BaseHTTPRequestHandler struct {
 	ProtocolVersion       string            // 协议版本
 	DefaultRequestVersion string            // 默认请求版本
 	HeadersBuffer         [][]byte          // 响应头缓冲区
+
+	ProcessMethod ProcessMethod // 处理方法接口
 }
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
@@ -145,7 +157,7 @@ func GoVersion() string {
 }
 
 // Handle 处理HTTP请求
-func (h *SimpleHTTPRequestHandler) Handle() {
+func (h *BaseHTTPRequestHandler) Handle() {
 	h.CloseConnection = true
 
 	h.HandleOneRequest()
@@ -155,7 +167,7 @@ func (h *SimpleHTTPRequestHandler) Handle() {
 }
 
 // HandleOneRequest 处理单个HTTP请求
-func (h *SimpleHTTPRequestHandler) HandleOneRequest() {
+func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 	try := func() {
 
 		if h.RFile == nil {
@@ -220,22 +232,23 @@ func (h *SimpleHTTPRequestHandler) HandleOneRequest() {
 }
 
 // 子类重写 GetMethod
-func (h *SimpleHTTPRequestHandler) GetMethod(name string) func() {
+func (h *BaseHTTPRequestHandler) GetMethod(name string) func() {
 	// print name
 	// fmt.Println(name)
 	switch name {
 	case "DoGET":
-		return h.DoGET
+		fmt.Println("DoGET")
+		return h.ProcessMethod.DoGET
 	case "DoHEAD":
-		return h.DoHEAD
+		return h.ProcessMethod.DoHEAD
 	case "DoPOST":
-		return h.DoPOST
+		return h.ProcessMethod.DoPOST
 	case "DoPUT":
-		return h.DoPUT
+		return h.ProcessMethod.DoPUT
 	case "DoDELETE":
-		return h.DoDELETE
+		return h.ProcessMethod.DoDELETE
 	case "DoOPTIONS":
-		return h.DoOPTIONS
+		return h.ProcessMethod.DoOPTIONS
 	}
 	return nil
 }
@@ -569,16 +582,16 @@ type SimpleHTTPRequestHandler struct {
 
 // NewSimpleHTTPRequestHandler 创建一个新的简单HTTP请求处理器
 func NewSimpleHTTPRequestHandler(conn net.Conn, directory string) *SimpleHTTPRequestHandler {
-	baseHandler := NewBaseHTTPRequestHandler(conn)
-	return &SimpleHTTPRequestHandler{
-		BaseHTTPRequestHandler: baseHandler,
+	handler := &SimpleHTTPRequestHandler{
+		BaseHTTPRequestHandler: NewBaseHTTPRequestHandler(conn),
 		Directory:              directory,
 	}
+	handler.ProcessMethod = handler // 设置处理方法为自身
+	return handler
 }
 
 // DoGET 处理GET请求
 func (h *SimpleHTTPRequestHandler) DoGET() {
-	fmt.Println("DoGET Simple")
 	f, err := h.SendHead()
 	if err != nil {
 		return
@@ -599,40 +612,163 @@ func (h *SimpleHTTPRequestHandler) DoHEAD() {
 	f.Close()
 }
 
+// DoPOST handles file upload with support for target path
+func (h *SimpleHTTPRequestHandler) DoPOST() {
+	contentType := h.Headers["Content-Type"]
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
+		h.SendError(BAD_REQUEST, "Content-Type must be multipart/form-data")
+		return
+	}
+	boundary := params["boundary"]
+	reader := multipart.NewReader(h.RFile, boundary)
+	target := h.TranslatePath(h.Path)
+	uploadDir := strings.HasSuffix(h.Path, "/")
+	if !uploadDir {
+		if info, err := os.Stat(target); err == nil && info.IsDir() {
+			uploadDir = true
+		}
+	}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			h.SendError(INTERNAL_SERVER_ERROR, "Error reading multipart data")
+			return
+		}
+		var dest string
+		if uploadDir {
+			filename := filepath.Base(part.FileName())
+			if filename == "" {
+				continue
+			}
+			dest = filepath.Join(target, filename)
+		} else {
+			dest = target
+		}
+		dst, err := os.Create(dest)
+		if err != nil {
+			h.SendError(INTERNAL_SERVER_ERROR, "Cannot create file")
+			return
+		}
+		if _, err := io.Copy(dst, part); err != nil {
+			dst.Close()
+			h.SendError(INTERNAL_SERVER_ERROR, "Error saving file")
+			return
+		}
+		dst.Close()
+		if !uploadDir {
+			break
+		}
+	}
+	h.SendResponse(OK, "Upload successful")
+	h.EndHeaders()
+}
+
 // SendHead 发送文件头信息
 func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	path := h.TranslatePath(h.Path)
-	f, err := os.Open(path)
+	var f *os.File
+	var err error
+	var needClose bool = true // 标记是否需要关闭文件
+
+	// 确保在错误时关闭已打开的文件
+	defer func() {
+		if needClose && f != nil {
+			f.Close()
+		}
+	}()
+
+	// 第一阶段：路径检查
+	stat, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			h.SendError(NOT_FOUND, "File not found")
+		} else {
+			h.SendError(INTERNAL_SERVER_ERROR, "File error")
+		}
+		return nil, err
+	}
+
+	// 第二阶段：目录处理
+	if stat.IsDir() {
+		// 检查是否需要添加尾部斜杠
+		if !strings.HasSuffix(h.Path, "/") {
+			// 重构完整URL（保留查询参数）
+			rawURL := h.RequestLine
+			if idx := strings.Index(rawURL, " "); idx != -1 {
+				rawURL = rawURL[:idx]
+			}
+			parsedURL, _ := url.Parse(rawURL)
+			parsedURL.Path += "/"
+			newURL := parsedURL.String()
+
+			h.SendResponse(MOVED_PERMANENTLY, "")
+			h.SendHeader("Location", newURL)
+			h.SendHeader("Content-Length", "0")
+			h.EndHeaders()
+			return nil, nil
+		}
+
+		// 查找索引文件
+		foundIndex := false
+		for _, index := range []string{"index.html", "index.htm"} {
+			indexPath := filepath.Join(path, index)
+			if fs, err := os.Stat(indexPath); err == nil && !fs.IsDir() {
+				path = indexPath
+				foundIndex = true
+				break
+			}
+		}
+
+		if !foundIndex {
+			// 列目录处理
+			return h.ListDirectory(path)
+		}
+
+		// 重新获取文件状态（因为path可能指向index文件）
+		if stat, err = os.Stat(path); err != nil {
+			h.SendError(NOT_FOUND, "File not found")
+			return nil, err
+		}
+	}
+
+	// 第三阶段：路径验证
+	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, string(filepath.Separator)) {
+		h.SendError(NOT_FOUND, "File not found")
+		return nil, os.ErrNotExist
+	}
+
+	// 第四阶段：缓存验证
+	if ims := h.Headers["If-Modified-Since"]; ims != "" {
+		modTime := stat.ModTime().UTC().Truncate(time.Second)
+		if t, err := time.Parse(time.RFC1123, ims); err == nil {
+			t = t.UTC()
+			if !modTime.After(t) {
+				h.SendResponse(NOT_MODIFIED, "")
+				h.EndHeaders()
+				return nil, nil
+			}
+		}
+	}
+
+	// 第五阶段：打开文件
+	f, err = os.Open(path)
 	if err != nil {
 		h.SendError(NOT_FOUND, "File not found")
 		return nil, err
 	}
 
-	// 获取文件信息
-	stat, err := f.Stat()
-	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "File error")
-		return nil, err
-	}
-
-	// 如果是目录，列出目录内容
-	if stat.IsDir() {
-		f.Close()
-		if !strings.HasSuffix(h.Path, "/") {
-			// 重定向到带斜杠的URL
-			h.SendResponse(MOVED_PERMANENTLY, "")
-			h.SendHeader("Location", h.Path+"/")
-			h.EndHeaders()
-			return nil, fmt.Errorf("redirect to %s/", h.Path)
-		}
-		return h.ListDirectory(path)
-	}
-
-	// 发送文件内容
+	// 第六阶段：发送头信息
 	h.SendResponse(OK, "")
 	h.SendHeader("Content-Type", h.GuessType(path))
 	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123))
 	h.EndHeaders()
+
+	needClose = false // 调用者需要负责关闭文件
 	return f, nil
 }
 
@@ -688,39 +824,61 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	// 在实际实现中，这里应该执行CGI脚本并处理其输出
 }
 
-// TranslatePath 将URL路径转换为文件系统路径
+// TranslatePath 将URL路径转换为文件系统路径，确保路径安全
 func (h *SimpleHTTPRequestHandler) TranslatePath(urlPath string) string {
+	// 移除查询参数和锚点
+	if idx := strings.Index(urlPath, "?"); idx != -1 {
+		urlPath = urlPath[:idx]
+	}
+	if idx := strings.Index(urlPath, "#"); idx != -1 {
+		urlPath = urlPath[:idx]
+	}
+
+	// 判断原始路径是否以斜杠结尾（去除右侧空白后）
+	trimmedRawPath := strings.TrimRight(urlPath, " \t\n\r")
+	trailingSlash := strings.HasSuffix(trimmedRawPath, "/")
+
 	// 解码URL路径
-	try := func(urlPath string) string {
-		// 去除查询参数
-		if idx := strings.Index(urlPath, "?"); idx != -1 {
-			urlPath = urlPath[:idx]
-		}
-
-		// 解码URL
-		urlPath, err := url.PathUnescape(urlPath)
-		if err != nil {
-			return ""
-		}
-
-		// 规范化路径
-		urlPath = path.Clean(urlPath)
-
-		// 确保路径不会超出根目录
-		if !strings.HasPrefix(urlPath, "/") {
-			urlPath = "/" + urlPath
-		}
-
-		// 将URL路径转换为文件系统路径
-		result := filepath.Join(h.Directory, urlPath[1:])
-		return result
+	decodedPath, err := url.PathUnescape(urlPath)
+	if err != nil {
+		h.SendError(BAD_REQUEST, "Bad URL encoding")
+		return ""
 	}
 
-	result := try(urlPath)
-	if result == "" {
-		h.SendError(BAD_REQUEST, "Bad URL path")
+	// 规范化路径并确保绝对路径
+	cleanPath := path.Clean(decodedPath)
+	if !strings.HasPrefix(cleanPath, "/") {
+		cleanPath = "/" + cleanPath
 	}
-	return result
+
+	// 分割路径并过滤无效组件
+	parts := strings.Split(cleanPath, "/")
+	validParts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue // 跳过空组件（如双斜杠）
+		}
+
+		// 跳过包含文件系统分隔符或特殊目录的组件
+		if strings.Contains(part, string(filepath.Separator)) ||
+			part == "." || part == ".." {
+			continue
+		}
+		validParts = append(validParts, part)
+	}
+
+	// 构建文件系统路径
+	fsPath := h.Directory
+	for _, part := range validParts {
+		fsPath = filepath.Join(fsPath, part)
+	}
+
+	// 保留原始路径的尾部斜杠语义
+	if trailingSlash {
+		fsPath += string(filepath.Separator)
+	}
+
+	return fsPath
 }
 
 // GuessType 猜测文件的MIME类型
