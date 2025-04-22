@@ -15,6 +15,7 @@ func main() {
 	directoryLong := flag.String("directory", ".", "指定要提供服务的目录")
 	protocol := flag.String("p", "HTTP/1.0", "指定HTTP协议版本")
 	protocolLong := flag.String("protocol", "HTTP/1.0", "指定HTTP协议版本")
+	isDualStack := flag.String("dualstack", "false", "启用双栈支持")
 
 	// 解析命令行参数
 	flag.Parse()
@@ -46,19 +47,28 @@ func main() {
 	fmt.Printf("提供目录: %s\n", dir)
 	fmt.Printf("监听端口: %d\n", port)
 
-	// 启动服务器
-	err := server.StartServer(port, dir)
+	// 解析双栈参数
+	isDualStackBool, err := strconv.ParseBool(*isDualStack)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "无效的双栈参数: %v\n", err)
 		os.Exit(1)
+	}
+	if isDualStackBool {
+		fmt.Println("启用双栈支持")
+		// 启动双栈服务器
+		err := server.StartDualStackServer(port, dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+
+		// 启动服务器
+		err := server.StartServer(port, dir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
-	// 启动双栈服务器
-	err = server.StartDualStackServer(port, dir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
-		os.Exit(1)
-	}
 }
-
-// 补完ipv6逻辑的英文是 "Complete the IPv6 logic"
