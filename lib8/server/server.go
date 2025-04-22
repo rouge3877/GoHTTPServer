@@ -10,6 +10,7 @@ import (
 	"sync"
 	_ "time"
 
+	globalconfig "github.com/user/httpserver/server/global_config"
 	_ "github.com/user/httpserver/server/talklog"
 )
 
@@ -66,7 +67,7 @@ func (s *HTTPServer) ServerBind() error {
 }
 
 // Serve 开始服务
-func (s *HTTPServer) Serve(workdir string) error {
+func (s *HTTPServer) Serve() error {
 	if s.Listener == nil {
 		if err := s.ServerBind(); err != nil {
 			return err
@@ -90,8 +91,13 @@ func (s *HTTPServer) Serve(workdir string) error {
 			defer s.Wg.Done()
 			defer c.Close()
 			// 创建请求处理器并处理请求
-			handler := NewSimpleHTTPRequestHandler(c, workdir)
-			handler.Handle()
+			if globalconfig.GlobalConfig.Server.IsCgi {
+				handler := NewCGIHTTPRequestHandler(c)
+				handler.Handle()
+			} else {
+				handler := NewSimpleHTTPRequestHandler(c)
+				handler.Handle()
+			}
 		}(conn)
 	}
 }
@@ -121,21 +127,22 @@ func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 }
 
 // StartServer 启动HTTP服务器的便捷函数
-func StartServer(port int, directory string) error {
-	addr := fmt.Sprintf(":%d", port)
+func StartServer() error {
+	addr := fmt.Sprintf("%s:%d", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port)
 	server := NewThreadingHTTPServer(addr)
 
-	fmt.Printf("Serving HTTP on 0.0.0.0 port %d (http://localhost:%d/) ...\n", port, port)
-	return server.Serve(directory)
+	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port)
+	return server.Serve()
 }
 
 // StartDualStackServer 启动双栈HTTP服务器的便捷函数
-func StartDualStackServer(port int, directory string) error {
-	addr := fmt.Sprintf("[::]:%d", port)
-	server := NewDualStackServer(addr, directory)
+func StartDualStackServer() error {
+	addr := fmt.Sprintf("[%s]:%d", globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port)
+	server := NewDualStackServer(addr, globalconfig.GlobalConfig.Server.Workdir)
 
-	fmt.Printf("Serving HTTP on [::] port %d (http://localhost:%d/) ...\n", port, port)
-	return server.Serve(directory)
+	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
+		globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Workdir)
+	return server.Serve()
 }
 
 // DualStackServer 支持双栈(IPv4/IPv6)的HTTP服务器
@@ -181,7 +188,7 @@ func (s *DualStackServer) ServerBind() error {
 }
 
 // / Serve 开始服务(双栈)
-func (s *DualStackServer) Serve(workdir string) error {
+func (s *DualStackServer) Serve() error {
 	if s.Listener == nil {
 		if err := s.ServerBind(); err != nil {
 			return err
@@ -205,8 +212,14 @@ func (s *DualStackServer) Serve(workdir string) error {
 			defer c.Close()
 
 			// 创建请求处理器并处理请求
-			handler := NewSimpleHTTPRequestHandler(c, workdir)
-			handler.Handle()
+			if globalconfig.GlobalConfig.Server.IsCgi {
+				handler := NewCGIHTTPRequestHandler(c)
+				handler.Handle()
+			} else {
+				handler := NewSimpleHTTPRequestHandler(c)
+				handler.Handle()
+			}
+
 		}(conn)
 	}
 }

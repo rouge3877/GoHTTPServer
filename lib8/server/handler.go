@@ -21,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	globalconfig "github.com/user/httpserver/server/global_config"
 )
 
 // HTTPStatus 定义HTTP状态码常量
@@ -150,7 +152,7 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		SysVersion:            "Go/" + strings.Split(GoVersion(), " ")[0],
 		ErrorMessageFormat:    defaultErrorMessageFormat,
 		ErrorContentType:      defaultErrorContentType,
-		ProtocolVersion:       "HTTP/1.1",
+		ProtocolVersion:       globalconfig.GlobalConfig.Server.Proto,
 		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
 	}
@@ -599,10 +601,10 @@ type SimpleHTTPRequestHandler struct {
 }
 
 // NewSimpleHTTPRequestHandler 创建一个新的简单HTTP请求处理器
-func NewSimpleHTTPRequestHandler(conn net.Conn, directory string) *SimpleHTTPRequestHandler {
+func NewSimpleHTTPRequestHandler(conn net.Conn) *SimpleHTTPRequestHandler {
 	handler := &SimpleHTTPRequestHandler{
 		BaseHTTPRequestHandler: NewBaseHTTPRequestHandler(conn),
-		Directory:              directory,
+		Directory:              globalconfig.GlobalConfig.Server.Workdir,
 	}
 	handler.ProcessMethod = handler // 设置处理方法为自身
 	return handler
@@ -799,14 +801,14 @@ type CGIHTTPRequestHandler struct {
 }
 
 // NewCGIHTTPRequestHandler 创建一个新的CGI HTTP请求处理器
-func NewCGIHTTPRequestHandler(conn net.Conn, directory string) *CGIHTTPRequestHandler {
+func NewCGIHTTPRequestHandler(conn net.Conn) *CGIHTTPRequestHandler {
 	handler := &CGIHTTPRequestHandler{
-		SimpleHTTPRequestHandler: NewSimpleHTTPRequestHandler(conn, directory),
+		SimpleHTTPRequestHandler: NewSimpleHTTPRequestHandler(conn),
 		CGIDirectories:           []string{"/cgi-bin", "/htbin", "/cgi", "/api", "app"},
 	}
 	handler.ProcessMethod = handler
 
-	return handler	
+	return handler
 }
 
 // Utilities for CGIHTTPRequestHandler
@@ -917,7 +919,6 @@ func contains(list []string, target string) bool {
 	return false
 }
 
-
 // DoPOST 处理POST请求
 func (h *CGIHTTPRequestHandler) DoPOST() {
 	if h.IsCGIScript() {
@@ -940,215 +941,213 @@ func (h *CGIHTTPRequestHandler) SendHead() (*os.File, error) {
 
 // RunCGI 执行CGI脚本
 func (h *CGIHTTPRequestHandler) RunCGI() {
-    dir := h.cgiInfo[0]
-    rest := h.cgiInfo[1]
-    scriptPath := path.Join(dir, rest)
+	dir := h.cgiInfo[0]
+	rest := h.cgiInfo[1]
+	scriptPath := path.Join(dir, rest)
 
-    // 查找最长的有效目录路径
-    for {
-        i := strings.Index(scriptPath[len(dir)+1:], "/")
-        if i < 0 {
-            break
-        }
-        i += len(dir) + 1
-        nextDir := scriptPath[:i]
-        translated := h.TranslatePath(nextDir)
-        if fi, err := os.Stat(translated); err == nil && fi.IsDir() {
-            dir = nextDir
-            rest = scriptPath[i+1:]
-        } else {
-            break
-        }
-    }
+	// 查找最长的有效目录路径
+	for {
+		i := strings.Index(scriptPath[len(dir)+1:], "/")
+		if i < 0 {
+			break
+		}
+		i += len(dir) + 1
+		nextDir := scriptPath[:i]
+		translated := h.TranslatePath(nextDir)
+		if fi, err := os.Stat(translated); err == nil && fi.IsDir() {
+			dir = nextDir
+			rest = scriptPath[i+1:]
+		} else {
+			break
+		}
+	}
 
-    // 解析查询字符串
-    rest, query, _ := strings.Cut(rest, "?")
+	// 解析查询字符串
+	rest, query, _ := strings.Cut(rest, "?")
 
-    // 分割脚本名和PATH_INFO
-    i := strings.Index(rest, "/")
-    var script, pathInfo string
-    if i >= 0 {
-        script = rest[:i]
-        pathInfo = rest[i:]
-    } else {
-        script = rest
-        pathInfo = ""
-    }
+	// 分割脚本名和PATH_INFO
+	i := strings.Index(rest, "/")
+	var script, pathInfo string
+	if i >= 0 {
+		script = rest[:i]
+		pathInfo = rest[i:]
+	} else {
+		script = rest
+		pathInfo = ""
+	}
 
-    scriptName := path.Join(dir, script)
-    scriptFile := h.TranslatePath(scriptName)
+	scriptName := path.Join(dir, script)
+	scriptFile := h.TranslatePath(scriptName)
 
-    // 检查脚本文件状态
-    scriptStat, err := os.Stat(scriptFile)
-    if os.IsNotExist(err) {
-        h.SendError(NOT_FOUND, fmt.Sprintf("No such CGI script (%q)", scriptName))
-        return
-    }
-    if !scriptStat.Mode().IsRegular() {
-        h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not a plain file (%q)", scriptName))
-        return
-    }
+	// 检查脚本文件状态
+	scriptStat, err := os.Stat(scriptFile)
+	if os.IsNotExist(err) {
+		h.SendError(NOT_FOUND, fmt.Sprintf("No such CGI script (%q)", scriptName))
+		return
+	}
+	if !scriptStat.Mode().IsRegular() {
+		h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not a plain file (%q)", scriptName))
+		return
+	}
 
-    // 检查执行权限
-    if !isExecutable(scriptFile) {
-        h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not executable (%q)", scriptName))
-        return
-    }
+	// 检查执行权限
+	if !isExecutable(scriptFile) {
+		h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not executable (%q)", scriptName))
+		return
+	}
 
-    // 构建环境变量
-    env := h.buildEnv(scriptName, pathInfo, query)
+	// 构建环境变量
+	env := h.buildEnv(scriptName, pathInfo, query)
 
-    // 发送响应头
-    h.SendResponse(OK, "Script output follows")
-    h.FlushHeaders()
+	// 发送响应头
+	h.SendResponse(OK, "Script output follows")
+	h.FlushHeaders()
 
-    // 构建执行命令
-    cmd, _ := h.buildCommand(scriptFile, query)
-    cmd.Env = env
+	// 构建执行命令
+	cmd, _ := h.buildCommand(scriptFile, query)
+	cmd.Env = env
 
-    // 设置标准输入输出
-    cmd.Stdout = h.WFile
-    var stdin io.Reader
-    if h.Command == "POST" {
-        if contentLength := h.Headers["Content-Length"]; contentLength != "" {
-            if length, err := strconv.Atoi(contentLength); err == nil && length > 0 {
-                stdin = io.LimitReader(h.RFile, int64(length))
-            }
-        }
-    }
-    cmd.Stdin = stdin
+	// 设置标准输入输出
+	cmd.Stdout = h.WFile
+	var stdin io.Reader
+	if h.Command == "POST" {
+		if contentLength := h.Headers["Content-Length"]; contentLength != "" {
+			if length, err := strconv.Atoi(contentLength); err == nil && length > 0 {
+				stdin = io.LimitReader(h.RFile, int64(length))
+			}
+		}
+	}
+	cmd.Stdin = stdin
 
-    // 捕获标准错误
-    stderr, err := cmd.StderrPipe()
-    if err != nil {
-        h.LogError("Error creating stderr pipe: %v", err)
-        return
-    }
-    go func() {
-        defer stderr.Close()
-        if slurm, err := io.ReadAll(stderr); err == nil && len(slurm) > 0 {
-            h.LogError("CGI stderr: %s", string(slurm))
-        }
-    }()
+	// 捕获标准错误
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		h.LogError("Error creating stderr pipe: %v", err)
+		return
+	}
+	go func() {
+		defer stderr.Close()
+		if slurm, err := io.ReadAll(stderr); err == nil && len(slurm) > 0 {
+			h.LogError("CGI stderr: %s", string(slurm))
+		}
+	}()
 
-    // 执行命令
-    if err := cmd.Start(); err != nil {
-        h.SendError(INTERNAL_SERVER_ERROR, fmt.Sprintf("Failed to start CGI script: %v", err))
-        return
-    }
+	// 执行命令
+	if err := cmd.Start(); err != nil {
+		h.SendError(INTERNAL_SERVER_ERROR, fmt.Sprintf("Failed to start CGI script: %v", err))
+		return
+	}
 
-    // 等待命令完成
-    if err := cmd.Wait(); err != nil {
-        if exitErr, ok := err.(*exec.ExitError); ok {
-            h.LogError("CGI script exited with code %d", exitErr.ExitCode())
-        } else {
-            h.LogError("CGI script error: %v", err)
-        }
-    }
+	// 等待命令完成
+	if err := cmd.Wait(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			h.LogError("CGI script exited with code %d", exitErr.ExitCode())
+		} else {
+			h.LogError("CGI script error: %v", err)
+		}
+	}
 
-    h.WFile.Flush()
+	h.WFile.Flush()
 }
 
 // 辅助函数：判断文件是否可执行
 func isExecutable(path string) bool {
-    info, err := os.Stat(path)
-    if err != nil {
-        return false
-    }
-    if runtime.GOOS == "windows" {
-        ext := strings.ToLower(filepath.Ext(path))
-        return ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".py"
-    }
-    return info.Mode().Perm()&0111 != 0
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		ext := strings.ToLower(filepath.Ext(path))
+		return ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".py"
+	}
+	return info.Mode().Perm()&0111 != 0
 }
-
-
 
 // 构建环境变量
 func (h *CGIHTTPRequestHandler) buildEnv(scriptName, pathInfo, query string) []string {
-    env := os.Environ()
-    envMap := make(map[string]string)
-    for _, e := range env {
-        if k, v, found := strings.Cut(e, "="); found {
-            envMap[k] = v
-        }
-    }
+	env := os.Environ()
+	envMap := make(map[string]string)
+	for _, e := range env {
+		if k, v, found := strings.Cut(e, "="); found {
+			envMap[k] = v
+		}
+	}
 
-    // 服务器信息
-    if addr, ok := h.Conn.LocalAddr().(*net.TCPAddr); ok {
-        envMap["SERVER_PORT"] = strconv.Itoa(addr.Port)
-    }
-    envMap["SERVER_SOFTWARE"] = h.VersionString()
-    envMap["SERVER_NAME"] = h.ServerName()
-    envMap["GATEWAY_INTERFACE"] = "CGI/" + GoHTTPServerVersion()
-    envMap["SERVER_PROTOCOL"] = h.ProtocolVersion
-    envMap["REQUEST_METHOD"] = h.Command
+	// 服务器信息
+	if addr, ok := h.Conn.LocalAddr().(*net.TCPAddr); ok {
+		envMap["SERVER_PORT"] = strconv.Itoa(addr.Port)
+	}
+	envMap["SERVER_SOFTWARE"] = h.VersionString()
+	envMap["SERVER_NAME"] = h.ServerName()
+	envMap["GATEWAY_INTERFACE"] = "CGI/" + GoHTTPServerVersion()
+	envMap["SERVER_PROTOCOL"] = h.ProtocolVersion
+	envMap["REQUEST_METHOD"] = h.Command
 
-    // 路径信息
-    envMap["PATH_INFO"] = pathInfo
-    envMap["PATH_TRANSLATED"] = h.TranslatePath(pathInfo)
-    envMap["SCRIPT_NAME"] = scriptName
-    envMap["QUERY_STRING"] = query
+	// 路径信息
+	envMap["PATH_INFO"] = pathInfo
+	envMap["PATH_TRANSLATED"] = h.TranslatePath(pathInfo)
+	envMap["SCRIPT_NAME"] = scriptName
+	envMap["QUERY_STRING"] = query
 
-    // 客户端信息
-    envMap["REMOTE_ADDR"] = h.ClientAddress
+	// 客户端信息
+	envMap["REMOTE_ADDR"] = h.ClientAddress
 
-    // 认证信息
-    if auth := h.Headers["Authorization"]; auth != "" {
-        parts := strings.SplitN(auth, " ", 2)
-        if len(parts) == 2 {
-            envMap["AUTH_TYPE"] = parts[0]
-            if strings.EqualFold(parts[0], "basic") {
-                decoded, err := base64.StdEncoding.DecodeString(parts[1])
-                if err == nil {
-                    if userPass := strings.SplitN(string(decoded), ":", 2); len(userPass) == 2 {
-                        envMap["REMOTE_USER"] = userPass[0]
-                    }
-                }
-            }
-        }
-    }
+	// 认证信息
+	if auth := h.Headers["Authorization"]; auth != "" {
+		parts := strings.SplitN(auth, " ", 2)
+		if len(parts) == 2 {
+			envMap["AUTH_TYPE"] = parts[0]
+			if strings.EqualFold(parts[0], "basic") {
+				decoded, err := base64.StdEncoding.DecodeString(parts[1])
+				if err == nil {
+					if userPass := strings.SplitN(string(decoded), ":", 2); len(userPass) == 2 {
+						envMap["REMOTE_USER"] = userPass[0]
+					}
+				}
+			}
+		}
+	}
 
-    // 内容处理
-    envMap["CONTENT_TYPE"] = h.Headers["Content-Type"]
-    if cl := h.Headers["Content-Length"]; cl != "" {
-        envMap["CONTENT_LENGTH"] = cl
-    }
+	// 内容处理
+	envMap["CONTENT_TYPE"] = h.Headers["Content-Type"]
+	if cl := h.Headers["Content-Length"]; cl != "" {
+		envMap["CONTENT_LENGTH"] = cl
+	}
 
-    // HTTP头转换
-    for k, v := range h.Headers {
-        upperKey := strings.ToUpper(k)
-        if upperKey == "CONTENT-TYPE" || upperKey == "CONTENT-LENGTH" {
-            continue
-        }
-        envKey := "HTTP_" + strings.ReplaceAll(upperKey, "-", "_")
-        envMap[envKey] = v
-    }
+	// HTTP头转换
+	for k, v := range h.Headers {
+		upperKey := strings.ToUpper(k)
+		if upperKey == "CONTENT-TYPE" || upperKey == "CONTENT-LENGTH" {
+			continue
+		}
+		envKey := "HTTP_" + strings.ReplaceAll(upperKey, "-", "_")
+		envMap[envKey] = v
+	}
 
-    // 转换为环境变量列表
-    envList := make([]string, 0, len(envMap))
-    for k, v := range envMap {
-        envList = append(envList, fmt.Sprintf("%s=%s", k, v))
-    }
-    return envList
+	// 转换为环境变量列表
+	envList := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		envList = append(envList, fmt.Sprintf("%s=%s", k, v))
+	}
+	return envList
 }
 
 // 构建执行命令
 func (h *CGIHTTPRequestHandler) buildCommand(scriptFile, query string) (*exec.Cmd, []string) {
-    var cmd *exec.Cmd
-    args := []string{}
+	var cmd *exec.Cmd
+	args := []string{}
 
-    // 处理Python脚本
-    if strings.HasSuffix(scriptFile, ".py") {
-        interp, _ := exec.LookPath("python3")
-        if interp == "" {
-            interp, _ = exec.LookPath("python")
-        }
-        if interp != "" {
-            args = append(args, "-u", scriptFile)
-            cmd = exec.Command(interp, args...)
-        }
-    }
+	// 处理Python脚本
+	if strings.HasSuffix(scriptFile, ".py") {
+		interp, _ := exec.LookPath("python3")
+		if interp == "" {
+			interp, _ = exec.LookPath("python")
+		}
+		if interp != "" {
+			args = append(args, "-u", scriptFile)
+			cmd = exec.Command(interp, args...)
+		}
+	}
 
 	// 处理bash脚本
 	if strings.HasSuffix(scriptFile, ".sh") {
@@ -1176,20 +1175,20 @@ func (h *CGIHTTPRequestHandler) buildCommand(scriptFile, query string) (*exec.Cm
 			cmd = exec.Command(interp, args...)
 		}
 	}
-	
-    // 非Python脚本直接执行
-    if cmd == nil {
-        args = append(args, scriptFile)
-        cmd = exec.Command(args[0], args[1:]...)
-    }
 
-    // 添加查询参数
-    decodedQuery := strings.ReplaceAll(query, "+", " ")
-    if !strings.Contains(decodedQuery, "=") && decodedQuery != "" {
-        cmd.Args = append(cmd.Args, decodedQuery)
-    }
+	// 非Python脚本直接执行
+	if cmd == nil {
+		args = append(args, scriptFile)
+		cmd = exec.Command(args[0], args[1:]...)
+	}
 
-    return cmd, cmd.Args
+	// 添加查询参数
+	decodedQuery := strings.ReplaceAll(query, "+", " ")
+	if !strings.Contains(decodedQuery, "=") && decodedQuery != "" {
+		cmd.Args = append(cmd.Args, decodedQuery)
+	}
+
+	return cmd, cmd.Args
 }
 
 // TranslatePath 将URL路径转换为文件系统路径，确保路径安全
