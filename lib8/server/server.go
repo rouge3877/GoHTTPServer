@@ -64,7 +64,7 @@ func (s *HTTPServer) ServerBind() error {
 }
 
 // Serve 开始服务
-func (s *HTTPServer) Serve() error {
+func (s *HTTPServer) Serve(workdir string) error {
 	if s.Listener == nil {
 		if err := s.ServerBind(); err != nil {
 			return err
@@ -89,7 +89,7 @@ func (s *HTTPServer) Serve() error {
 			defer c.Close()
 
 			// 创建请求处理器并处理请求
-			handler := NewSimpleHTTPRequestHandler(c, "./")
+			handler := NewSimpleHTTPRequestHandler(c, workdir)
 			handler.Handle()
 		}(conn)
 	}
@@ -125,7 +125,16 @@ func StartServer(port int, directory string) error {
 	server := NewThreadingHTTPServer(addr)
 
 	fmt.Printf("Serving HTTP on 0.0.0.0 port %d (http://localhost:%d/) ...\n", port, port)
-	return server.Serve()
+	return server.Serve(directory)
+}
+
+// StartDualStackServer 启动双栈HTTP服务器的便捷函数
+func StartDualStackServer(port int, directory string) error {
+	addr := fmt.Sprintf("[::]:%d", port)
+	server := NewDualStackServer(addr, directory)
+
+	fmt.Printf("Serving HTTP on [::] port %d (http://localhost:%d/) ...\n", port, port)
+	return server.Serve(directory)
 }
 
 // DualStackServer 支持双栈(IPv4/IPv6)的HTTP服务器
@@ -167,6 +176,47 @@ func (s *DualStackServer) ServerBind() error {
 	s.ServerPort = 0
 	fmt.Sscanf(port, "%d", &s.ServerPort)
 
+	return nil
+}
+
+// / Serve 开始服务(双栈)
+func (s *DualStackServer) Serve(workdir string) error {
+	if s.Listener == nil {
+		if err := s.ServerBind(); err != nil {
+			return err
+		}
+	}
+	for {
+		conn, err := s.Listener.Accept()
+		if err != nil {
+			select {
+			case <-s.ShutdownCtx.Done():
+				return nil
+			default:
+				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
+				continue
+			}
+		}
+
+		s.Wg.Add(1)
+		go func(c net.Conn) {
+			defer s.Wg.Done()
+			defer c.Close()
+
+			// 创建请求处理器并处理请求
+			handler := NewSimpleHTTPRequestHandler(c, workdir)
+			handler.Handle()
+		}(conn)
+	}
+}
+
+// Shutdown 关闭服务器(双栈)
+func (s *DualStackServer) Shutdown() error {
+	s.ShutdownCancel()
+	if s.Listener != nil {
+		s.Listener.Close()
+	}
+	s.Wg.Wait()
 	return nil
 }
 

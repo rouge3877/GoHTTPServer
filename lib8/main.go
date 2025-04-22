@@ -52,4 +52,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
 		os.Exit(1)
 	}
+
+	// 启动双栈服务器
+	err = server.StartDualStackServer(port, dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
+		os.Exit(1)
+	}
 }
+
+// 补完ipv6逻辑的英文是 "Complete the IPv6 logic"
