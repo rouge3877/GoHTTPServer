@@ -2,6 +2,8 @@ package server
 
 import (
 	"bufio"
+	_ "bytes"
+	"encoding/base64"
 	"fmt"
 	"html"
 	"io"
@@ -11,8 +13,10 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,6 +112,7 @@ type ProcessMethod interface {
 	DoPUT()
 	DoDELETE()
 	DoOPTIONS()
+	SendHead() (*os.File, error)
 }
 
 // BaseHTTPRequestHandler 实现基本的HTTP请求处理器
@@ -141,19 +146,28 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		RFile:                 bufio.NewReader(conn),
 		WFile:                 bufio.NewWriter(conn),
 		CloseConnection:       true,
-		ServerVersion:         "GoHTTPServer/0.6",
+		ServerVersion:         "GoHTTPServer/" + strings.Split(GoHTTPServerVersion(), " ")[0],
 		SysVersion:            "Go/" + strings.Split(GoVersion(), " ")[0],
 		ErrorMessageFormat:    defaultErrorMessageFormat,
 		ErrorContentType:      defaultErrorContentType,
-		ProtocolVersion:       "HTTP/1.0",
-		DefaultRequestVersion: "HTTP/0.9",
+		ProtocolVersion:       "HTTP/1.1",
+		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
 	}
 }
 
 // GoVersion 返回Go版本
 func GoVersion() string {
-	return "1.20"
+	go_v := runtime.Version()
+	go_v = strings.TrimPrefix(go_v, "go")
+	return go_v
+}
+
+var __VERSION__ = "0.01"
+var __SERVER_NAME__ = "GoHTTPServer"
+
+func GoHTTPServerVersion() string {
+	return __VERSION__
 }
 
 // Handle 处理HTTP请求
@@ -544,6 +558,10 @@ func (h *BaseHTTPRequestHandler) VersionString() string {
 	return h.ServerVersion + " " + h.SysVersion
 }
 
+func (h *BaseHTTPRequestHandler) ServerName() string {
+	return __SERVER_NAME__
+}
+
 // DateTimeString 返回HTTP日期时间字符串
 func (h *BaseHTTPRequestHandler) DateTimeString() string {
 	now := time.Now().UTC()
@@ -592,7 +610,8 @@ func NewSimpleHTTPRequestHandler(conn net.Conn, directory string) *SimpleHTTPReq
 
 // DoGET 处理GET请求
 func (h *SimpleHTTPRequestHandler) DoGET() {
-	f, err := h.SendHead()
+	fmt.Println("DoGETin simple!!!")
+	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
 	}
@@ -605,7 +624,7 @@ func (h *SimpleHTTPRequestHandler) DoGET() {
 
 // DoHEAD 处理HEAD请求
 func (h *SimpleHTTPRequestHandler) DoHEAD() {
-	f, err := h.SendHead()
+	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
 	}
@@ -775,53 +794,402 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 // CGIHTTPRequestHandler 实现CGI HTTP请求处理器
 type CGIHTTPRequestHandler struct {
 	*SimpleHTTPRequestHandler
-	CGIDirectories []string // CGI脚本目录列表
+	CGIDirectories []string  // CGI脚本目录列表
+	cgiInfo        [2]string // 存储匹配的 (dir, rest)
 }
 
 // NewCGIHTTPRequestHandler 创建一个新的CGI HTTP请求处理器
-func NewCGIHTTPRequestHandler(conn net.Conn, server *HTTPServer, directory string) *CGIHTTPRequestHandler {
-	simpleHandler := NewSimpleHTTPRequestHandler(conn, directory)
-	return &CGIHTTPRequestHandler{
-		SimpleHTTPRequestHandler: simpleHandler,
-		CGIDirectories:           []string{"/cgi-bin", "/htbin"},
+func NewCGIHTTPRequestHandler(conn net.Conn, directory string) *CGIHTTPRequestHandler {
+	handler := &CGIHTTPRequestHandler{
+		SimpleHTTPRequestHandler: NewSimpleHTTPRequestHandler(conn, directory),
+		CGIDirectories:           []string{"/cgi-bin", "/htbin", "/cgi", "/api", "app"},
 	}
+	handler.ProcessMethod = handler
+
+	return handler	
+}
+
+// Utilities for CGIHTTPRequestHandler
+func _url_collapse_path(path string) string {
+	/*
+	   Given a URL path, remove extra '/'s and '.' path elements and collapse
+	   any '..' references and returns a collapsed path.
+
+	   Implements something akin to RFC-2396 5.2 step 6 to parse relative paths.
+	   The utility of this function is limited to is_cgi method and helps
+	   preventing some security attacks.
+
+	   Returns: The reconstituted URL, which will always start with a '/'.
+
+	   Raises: IndexError if too many '..' occur within the path.
+	*/
+
+	// 去除查询参数
+	var raw, query string
+	if idx := strings.Index(path, "?"); idx != -1 {
+		raw = path[:idx]
+		query = path[idx+1:]
+	} else {
+		raw = path
+	}
+	// 解码 URL 编码
+	decoded, _ := url.PathUnescape(raw)
+
+	// 拆分为各段
+	parts := strings.Split(decoded, "/")
+	head := make([]string, 0, len(parts))
+	// 处理中间段（除最后一段外）
+	for _, part := range parts[:len(parts)-1] {
+		switch part {
+		case "", ".":
+			// skip
+		case "..":
+			if len(head) > 0 {
+				head = head[:len(head)-1]
+			} else {
+				panic("too many .. in path")
+			}
+		default:
+			head = append(head, part)
+		}
+	}
+	// 处理尾段
+	tail := ""
+	if len(parts) > 0 {
+		tail = parts[len(parts)-1]
+		switch tail {
+		case "..":
+			if len(head) > 0 {
+				head = head[:len(head)-1]
+			} else {
+				panic("too many .. in path")
+			}
+			tail = ""
+		case ".":
+			tail = ""
+		}
+	}
+	// 如果有 query，附加回去
+	if query != "" {
+		if tail != "" {
+			tail = tail + "?" + query
+		} else {
+			tail = "?" + query
+		}
+	}
+	// 重组路径
+	prefix := "/" + strings.Join(head, "/")
+	return strings.Join([]string{prefix, tail}, "/")
 }
 
 // IsCGIScript 检查路径是否为CGI脚本
-func (h *CGIHTTPRequestHandler) IsCGIScript(path string) bool {
-	dir, _ := filepath.Split(path)
-	dir = filepath.ToSlash(dir)
-	for _, cgiDir := range h.CGIDirectories {
-		if strings.HasPrefix(dir, cgiDir) {
+func (h *CGIHTTPRequestHandler) IsCGIScript() bool {
+	collapsed := _url_collapse_path(h.Path)
+	// 从第1位开始查找下一个 '/'
+	idx := strings.Index(collapsed[1:], "/")
+	if idx >= 0 {
+		idx++ // 调整为在 collapsed 中的真实索引
+	}
+	// 向后继续查找，直到 dir 部分匹配 CGI 目录
+	for idx > 0 && !contains(h.CGIDirectories, collapsed[:idx]) {
+		next := strings.Index(collapsed[idx+1:], "/")
+		if next < 0 {
+			idx = -1
+			break
+		}
+		idx += next + 1
+	}
+	if idx > 0 && contains(h.CGIDirectories, collapsed[:idx]) {
+		h.cgiInfo[0] = collapsed[:idx]
+		h.cgiInfo[1] = collapsed[idx+1:]
+		return true
+	}
+	return false
+}
+
+// Helper: 判断 target 是否在列表中
+func contains(list []string, target string) bool {
+	for _, v := range list {
+		if v == target {
 			return true
 		}
 	}
 	return false
 }
 
-// DoGET 处理GET请求
-func (h *CGIHTTPRequestHandler) DoGET() {
-	if h.IsCGIScript(h.Path) {
-		h.RunCGI()
-	} else {
-		h.SimpleHTTPRequestHandler.DoGET()
-	}
-}
 
 // DoPOST 处理POST请求
 func (h *CGIHTTPRequestHandler) DoPOST() {
-	if h.IsCGIScript(h.Path) {
+	if h.IsCGIScript() {
 		h.RunCGI()
 	} else {
 		h.SimpleHTTPRequestHandler.DoPOST()
 	}
 }
 
-// RunCGI 运行CGI脚本
+// sendCGIHeaders 发送CGI响应头
+func (h *CGIHTTPRequestHandler) SendHead() (*os.File, error) {
+	fmt.Println("SendHead in CGI!!!")
+	if h.IsCGIScript() {
+		h.RunCGI()
+		return nil, nil
+	} else {
+		return h.SimpleHTTPRequestHandler.SendHead()
+	}
+}
+
+// RunCGI 执行CGI脚本
 func (h *CGIHTTPRequestHandler) RunCGI() {
-	// 注意：这是一个简化的实现，实际上需要更多的安全检查和错误处理
-	h.SendError(NOT_IMPLEMENTED, "CGI script execution not implemented")
-	// 在实际实现中，这里应该执行CGI脚本并处理其输出
+    dir := h.cgiInfo[0]
+    rest := h.cgiInfo[1]
+    scriptPath := path.Join(dir, rest)
+
+    // 查找最长的有效目录路径
+    for {
+        i := strings.Index(scriptPath[len(dir)+1:], "/")
+        if i < 0 {
+            break
+        }
+        i += len(dir) + 1
+        nextDir := scriptPath[:i]
+        translated := h.TranslatePath(nextDir)
+        if fi, err := os.Stat(translated); err == nil && fi.IsDir() {
+            dir = nextDir
+            rest = scriptPath[i+1:]
+        } else {
+            break
+        }
+    }
+
+    // 解析查询字符串
+    rest, query, _ := strings.Cut(rest, "?")
+
+    // 分割脚本名和PATH_INFO
+    i := strings.Index(rest, "/")
+    var script, pathInfo string
+    if i >= 0 {
+        script = rest[:i]
+        pathInfo = rest[i:]
+    } else {
+        script = rest
+        pathInfo = ""
+    }
+
+    scriptName := path.Join(dir, script)
+    scriptFile := h.TranslatePath(scriptName)
+
+    // 检查脚本文件状态
+    scriptStat, err := os.Stat(scriptFile)
+    if os.IsNotExist(err) {
+        h.SendError(NOT_FOUND, fmt.Sprintf("No such CGI script (%q)", scriptName))
+        return
+    }
+    if !scriptStat.Mode().IsRegular() {
+        h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not a plain file (%q)", scriptName))
+        return
+    }
+
+    // 检查执行权限
+    if !isExecutable(scriptFile) {
+        h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not executable (%q)", scriptName))
+        return
+    }
+
+    // 构建环境变量
+    env := h.buildEnv(scriptName, pathInfo, query)
+
+    // 发送响应头
+    h.SendResponse(OK, "Script output follows")
+    h.FlushHeaders()
+
+    // 构建执行命令
+    cmd, _ := h.buildCommand(scriptFile, query)
+    cmd.Env = env
+
+    // 设置标准输入输出
+    cmd.Stdout = h.WFile
+    var stdin io.Reader
+    if h.Command == "POST" {
+        if contentLength := h.Headers["Content-Length"]; contentLength != "" {
+            if length, err := strconv.Atoi(contentLength); err == nil && length > 0 {
+                stdin = io.LimitReader(h.RFile, int64(length))
+            }
+        }
+    }
+    cmd.Stdin = stdin
+
+    // 捕获标准错误
+    stderr, err := cmd.StderrPipe()
+    if err != nil {
+        h.LogError("Error creating stderr pipe: %v", err)
+        return
+    }
+    go func() {
+        defer stderr.Close()
+        if slurm, err := io.ReadAll(stderr); err == nil && len(slurm) > 0 {
+            h.LogError("CGI stderr: %s", string(slurm))
+        }
+    }()
+
+    // 执行命令
+    if err := cmd.Start(); err != nil {
+        h.SendError(INTERNAL_SERVER_ERROR, fmt.Sprintf("Failed to start CGI script: %v", err))
+        return
+    }
+
+    // 等待命令完成
+    if err := cmd.Wait(); err != nil {
+        if exitErr, ok := err.(*exec.ExitError); ok {
+            h.LogError("CGI script exited with code %d", exitErr.ExitCode())
+        } else {
+            h.LogError("CGI script error: %v", err)
+        }
+    }
+
+    h.WFile.Flush()
+}
+
+// 辅助函数：判断文件是否可执行
+func isExecutable(path string) bool {
+    info, err := os.Stat(path)
+    if err != nil {
+        return false
+    }
+    if runtime.GOOS == "windows" {
+        ext := strings.ToLower(filepath.Ext(path))
+        return ext == ".exe" || ext == ".bat" || ext == ".cmd" || ext == ".py"
+    }
+    return info.Mode().Perm()&0111 != 0
+}
+
+
+
+// 构建环境变量
+func (h *CGIHTTPRequestHandler) buildEnv(scriptName, pathInfo, query string) []string {
+    env := os.Environ()
+    envMap := make(map[string]string)
+    for _, e := range env {
+        if k, v, found := strings.Cut(e, "="); found {
+            envMap[k] = v
+        }
+    }
+
+    // 服务器信息
+    if addr, ok := h.Conn.LocalAddr().(*net.TCPAddr); ok {
+        envMap["SERVER_PORT"] = strconv.Itoa(addr.Port)
+    }
+    envMap["SERVER_SOFTWARE"] = h.VersionString()
+    envMap["SERVER_NAME"] = h.ServerName()
+    envMap["GATEWAY_INTERFACE"] = "CGI/" + GoHTTPServerVersion()
+    envMap["SERVER_PROTOCOL"] = h.ProtocolVersion
+    envMap["REQUEST_METHOD"] = h.Command
+
+    // 路径信息
+    envMap["PATH_INFO"] = pathInfo
+    envMap["PATH_TRANSLATED"] = h.TranslatePath(pathInfo)
+    envMap["SCRIPT_NAME"] = scriptName
+    envMap["QUERY_STRING"] = query
+
+    // 客户端信息
+    envMap["REMOTE_ADDR"] = h.ClientAddress
+
+    // 认证信息
+    if auth := h.Headers["Authorization"]; auth != "" {
+        parts := strings.SplitN(auth, " ", 2)
+        if len(parts) == 2 {
+            envMap["AUTH_TYPE"] = parts[0]
+            if strings.EqualFold(parts[0], "basic") {
+                decoded, err := base64.StdEncoding.DecodeString(parts[1])
+                if err == nil {
+                    if userPass := strings.SplitN(string(decoded), ":", 2); len(userPass) == 2 {
+                        envMap["REMOTE_USER"] = userPass[0]
+                    }
+                }
+            }
+        }
+    }
+
+    // 内容处理
+    envMap["CONTENT_TYPE"] = h.Headers["Content-Type"]
+    if cl := h.Headers["Content-Length"]; cl != "" {
+        envMap["CONTENT_LENGTH"] = cl
+    }
+
+    // HTTP头转换
+    for k, v := range h.Headers {
+        upperKey := strings.ToUpper(k)
+        if upperKey == "CONTENT-TYPE" || upperKey == "CONTENT-LENGTH" {
+            continue
+        }
+        envKey := "HTTP_" + strings.ReplaceAll(upperKey, "-", "_")
+        envMap[envKey] = v
+    }
+
+    // 转换为环境变量列表
+    envList := make([]string, 0, len(envMap))
+    for k, v := range envMap {
+        envList = append(envList, fmt.Sprintf("%s=%s", k, v))
+    }
+    return envList
+}
+
+// 构建执行命令
+func (h *CGIHTTPRequestHandler) buildCommand(scriptFile, query string) (*exec.Cmd, []string) {
+    var cmd *exec.Cmd
+    args := []string{}
+
+    // 处理Python脚本
+    if strings.HasSuffix(scriptFile, ".py") {
+        interp, _ := exec.LookPath("python3")
+        if interp == "" {
+            interp, _ = exec.LookPath("python")
+        }
+        if interp != "" {
+            args = append(args, "-u", scriptFile)
+            cmd = exec.Command(interp, args...)
+        }
+    }
+
+	// 处理bash脚本
+	if strings.HasSuffix(scriptFile, ".sh") {
+		interp, _ := exec.LookPath("bash")
+		if interp != "" {
+			args = append(args, scriptFile)
+			cmd = exec.Command(interp, args...)
+		}
+	}
+
+	// 处理golang脚本
+	if strings.HasSuffix(scriptFile, ".go") {
+		interp, _ := exec.LookPath("go")
+		if interp != "" {
+			args = append(args, "run", scriptFile)
+			cmd = exec.Command(interp, args...)
+		}
+	}
+
+	// 处理php脚本
+	if strings.HasSuffix(scriptFile, ".php") {
+		interp, _ := exec.LookPath("php")
+		if interp != "" {
+			args = append(args, scriptFile)
+			cmd = exec.Command(interp, args...)
+		}
+	}
+	
+    // 非Python脚本直接执行
+    if cmd == nil {
+        args = append(args, scriptFile)
+        cmd = exec.Command(args[0], args[1:]...)
+    }
+
+    // 添加查询参数
+    decodedQuery := strings.ReplaceAll(query, "+", " ")
+    if !strings.Contains(decodedQuery, "=") && decodedQuery != "" {
+        cmd.Args = append(cmd.Args, decodedQuery)
+    }
+
+    return cmd, cmd.Args
 }
 
 // TranslatePath 将URL路径转换为文件系统路径，确保路径安全
