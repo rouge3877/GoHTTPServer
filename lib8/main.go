@@ -15,7 +15,10 @@ func main() {
 	directoryLong := flag.String("directory", ".", "指定要提供服务的目录")
 	protocol := flag.String("p", "HTTP/1.0", "指定HTTP协议版本")
 	protocolLong := flag.String("protocol", "HTTP/1.0", "指定HTTP协议版本")
-	isDualStack := flag.String("dualstack", "false", "启用双栈支持")
+	isDualStack := flag.String("D", "false", "启用双栈支持")
+	// isCgi := flag.String("c", "false", "启用CGI支持")
+	// isCgiLong := flag.String("cgi", "false", "启用CGI支持")
+	// isDualStackLong := flag.String("dualstack", "false", "启用双栈支持")
 
 	// 解析命令行参数
 	flag.Parse()
