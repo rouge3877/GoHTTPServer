@@ -955,6 +955,7 @@ def _url_collapse_path(path):
 
 nobody = None
 
+#TODO: 协调函数名和位置
 def nobody_uid():
     """Internal routine to get nobody's uid"""
     global nobody
