@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	_ "time"
+
+	_ "github.com/user/httpserver/server/talklog"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能
@@ -87,7 +89,6 @@ func (s *HTTPServer) Serve(workdir string) error {
 		go func(c net.Conn) {
 			defer s.Wg.Done()
 			defer c.Close()
-
 			// 创建请求处理器并处理请求
 			handler := NewSimpleHTTPRequestHandler(c, workdir)
 			handler.Handle()

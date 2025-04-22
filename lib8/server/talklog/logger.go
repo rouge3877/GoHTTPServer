@@ -2,17 +2,30 @@ package talklog
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
-	_ "strings"
+	"sync"
 )
 
-const (
-	ColorReset  = "\033[0m"
-	ColorRed    = "\033[31m"
-	ColorGreen  = "\033[32m"
-	ColorYellow = "\033[33m"
-	ColorCyan   = "\033[36m"
+var (
+	logConfig  LogConfig
+	fileHandle *os.File
+	logLock    sync.Mutex
 )
+
+func InitLogConfig(lgcfg *LogConfig) {
+	logConfig = *lgcfg
+	if logConfig.LogToFile {
+		var err error
+		os.MkdirAll(filepath.Dir(logConfig.FilePath), 0755)
+		fileHandle, err = os.OpenFile(logConfig.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("Error opening log file: %v\n", err)
+			return
+		}
+	}
+}
 
 // GID returns the goroutine ID of the current goroutine.
 // This is a workaround for the lack of a built-in way to get the goroutine ID in Go.

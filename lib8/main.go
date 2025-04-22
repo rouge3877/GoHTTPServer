@@ -62,7 +62,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-
+		fmt.Printf("启用IPV4支持\n")
 		// 启动服务器
 		err := server.StartServer(port, dir)
 		if err != nil {
