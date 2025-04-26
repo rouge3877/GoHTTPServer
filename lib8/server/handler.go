@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"io"
+	_ "compress/gzip"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -148,7 +149,7 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		RFile:                 bufio.NewReader(conn),
 		WFile:                 bufio.NewWriter(conn),
 		CloseConnection:       true,
-		ServerVersion:         "GoHTTPServer/" + strings.Split(GoHTTPServerVersion(), " ")[0],
+		ServerVersion:         GoHTTPServerName() + "/" + strings.Split(GoHTTPServerVersion(), " ")[0],
 		SysVersion:            "Go/" + strings.Split(GoVersion(), " ")[0],
 		ErrorMessageFormat:    defaultErrorMessageFormat,
 		ErrorContentType:      defaultErrorContentType,
@@ -170,6 +171,10 @@ var __SERVER_NAME__ = "GoHTTPServer"
 
 func GoHTTPServerVersion() string {
 	return __VERSION__
+}
+
+func GoHTTPServerName() string {
+	return __SERVER_NAME__
 }
 
 // Handle 处理HTTP请求
@@ -253,7 +258,6 @@ func (h *BaseHTTPRequestHandler) GetMethod(name string) func() {
 	// fmt.Println(name)
 	switch name {
 	case "DoGET":
-		fmt.Println("DoGET")
 		return h.ProcessMethod.DoGET
 	case "DoHEAD":
 		return h.ProcessMethod.DoHEAD
@@ -560,9 +564,6 @@ func (h *BaseHTTPRequestHandler) VersionString() string {
 	return h.ServerVersion + " " + h.SysVersion
 }
 
-func (h *BaseHTTPRequestHandler) ServerName() string {
-	return __SERVER_NAME__
-}
 
 // DateTimeString 返回HTTP日期时间字符串
 func (h *BaseHTTPRequestHandler) DateTimeString() string {
@@ -1078,7 +1079,7 @@ func (h *CGIHTTPRequestHandler) buildEnv(scriptName, pathInfo, query string) []s
 		envMap["SERVER_PORT"] = strconv.Itoa(addr.Port)
 	}
 	envMap["SERVER_SOFTWARE"] = h.VersionString()
-	envMap["SERVER_NAME"] = h.ServerName()
+	envMap["SERVER_NAME"] = GoHTTPServerName()
 	envMap["GATEWAY_INTERFACE"] = "CGI/" + GoHTTPServerVersion()
 	envMap["SERVER_PROTOCOL"] = h.ProtocolVersion
 	envMap["REQUEST_METHOD"] = h.Command
