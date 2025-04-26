@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
+	"strconv"
 	"sync"
 	_ "time"
+
+	globalconfig "github.com/user/httpserver/server/global_config"
+	_ "github.com/user/httpserver/server/talklog"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能
@@ -85,10 +90,14 @@ func (s *HTTPServer) Serve() error {
 		go func(c net.Conn) {
 			defer s.Wg.Done()
 			defer c.Close()
-
 			// 创建请求处理器并处理请求
-			handler := NewSimpleHTTPRequestHandler(c, "./")
-			handler.Handle()
+			if globalconfig.GlobalConfig.Server.IsCgi {
+				handler := NewCGIHTTPRequestHandler(c)
+				handler.Handle()
+			} else {
+				handler := NewSimpleHTTPRequestHandler(c)
+				handler.Handle()
+			}
 		}(conn)
 	}
 }
@@ -118,11 +127,21 @@ func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 }
 
 // StartServer 启动HTTP服务器的便捷函数
-func StartServer(port int, directory string) error {
-	addr := fmt.Sprintf(":%d", port)
+func StartServer() error {
+	addr := fmt.Sprintf("%s:%d", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port)
 	server := NewThreadingHTTPServer(addr)
 
-	fmt.Printf("Serving HTTP on 0.0.0.0 port %d (http://localhost:%d/) ...\n", port, port)
+	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port)
+	return server.Serve()
+}
+
+// StartDualStackServer 启动双栈HTTP服务器的便捷函数
+func StartDualStackServer() error {
+	addr := fmt.Sprintf("[%s]:%d", globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port)
+	server := NewDualStackServer(addr, globalconfig.GlobalConfig.Server.Workdir)
+
+	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
+		globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Workdir)
 	return server.Serve()
 }
 
@@ -166,4 +185,80 @@ func (s *DualStackServer) ServerBind() error {
 	fmt.Sscanf(port, "%d", &s.ServerPort)
 
 	return nil
+}
+
+// / Serve 开始服务(双栈)
+func (s *DualStackServer) Serve() error {
+	if s.Listener == nil {
+		if err := s.ServerBind(); err != nil {
+			return err
+		}
+	}
+	for {
+		conn, err := s.Listener.Accept()
+		if err != nil {
+			select {
+			case <-s.ShutdownCtx.Done():
+				return nil
+			default:
+				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
+				continue
+			}
+		}
+
+		s.Wg.Add(1)
+		go func(c net.Conn) {
+			defer s.Wg.Done()
+			defer c.Close()
+
+			// 创建请求处理器并处理请求
+			if globalconfig.GlobalConfig.Server.IsCgi {
+				handler := NewCGIHTTPRequestHandler(c)
+				handler.Handle()
+			} else {
+				handler := NewSimpleHTTPRequestHandler(c)
+				handler.Handle()
+			}
+
+		}(conn)
+	}
+}
+
+// Shutdown 关闭服务器(双栈)
+func (s *DualStackServer) Shutdown() error {
+	s.ShutdownCancel()
+	if s.Listener != nil {
+		s.Listener.Close()
+	}
+	s.Wg.Wait()
+	return nil
+}
+
+// GetNoBodyUID 获取系统中的nobody用户UID
+func GetNoBodyUID() (int, error) {
+	nobody, err := user.Lookup("nobody")
+	if err != nil {
+		return -1, err
+	}
+	uid, err := strconv.Atoi(nobody.Uid)
+	if err != nil {
+		return -1, err
+	}
+	return uid, nil
+}
+
+func Executable(path string) bool {
+	//获取文件信息
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	//检查是否是普通文件
+	if fileInfo.Mode().IsRegular() {
+		return false
+	}
+	//检查是否可执行
+	mode := fileInfo.Mode().Perm()
+	return mode&0111 != 0
+
 }

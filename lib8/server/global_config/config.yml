@@ -1,0 +1,13 @@
+server:
+  Port: 8000
+  Proto: HTTP/1.1
+  IsCgi: false
+  Workdir: "./statics"
+  IPv4: "0.0.0.0"
+  IPv6: "::"
+  IsDualStack: false
+
+logger:
+  LogToFile: false
+  FilePath: "./logs"
+  WithTime: true
