@@ -6,8 +6,9 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/user/httpserver/server"
-	globalconfig "github.com/user/httpserver/server/global_config"
+	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/server"
+	_ "github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 func main() {

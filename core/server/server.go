@@ -10,8 +10,8 @@ import (
 	"sync"
 	_ "time"
 
-	globalconfig "github.com/user/httpserver/server/global_config"
-	_ "github.com/user/httpserver/server/talklog"
+	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	_ "github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能

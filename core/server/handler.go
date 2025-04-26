@@ -3,11 +3,11 @@ package server
 import (
 	"bufio"
 	_ "bytes"
+	_ "compress/gzip"
 	"encoding/base64"
 	"fmt"
 	"html"
 	"io"
-	_ "compress/gzip"
 	"mime"
 	"mime/multipart"
 	"net"
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	globalconfig "github.com/user/httpserver/server/global_config"
+	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
 )
 
 // HTTPStatus 定义HTTP状态码常量
@@ -563,7 +563,6 @@ func (h *BaseHTTPRequestHandler) LogDate() string {
 func (h *BaseHTTPRequestHandler) VersionString() string {
 	return h.ServerVersion + " " + h.SysVersion
 }
-
 
 // DateTimeString 返回HTTP日期时间字符串
 func (h *BaseHTTPRequestHandler) DateTimeString() string {
