@@ -3,28 +3,39 @@ package talklog
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
+	"time"
 )
 
 var (
 	logConfig  LogConfig
 	fileHandle *os.File
 	logLock    sync.Mutex
+	prefixLock sync.RWMutex
+	logPrefix  string = ""
 )
 
 func InitLogConfig(lgcfg *LogConfig) {
 	logConfig = *lgcfg
 	if logConfig.LogToFile {
 		var err error
-		os.MkdirAll(filepath.Dir(logConfig.FilePath), 0755)
+		os.MkdirAll(getDir(logConfig.FilePath), 0755)
 		fileHandle, err = os.OpenFile(logConfig.FilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			fmt.Printf("Error opening log file: %v\n", err)
 			return
 		}
 	}
+}
+
+func getDir(path string) string {
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash == -1 {
+		return "."
+	}
+	return path[:lastSlash]
 }
 
 // GID returns the goroutine ID of the current goroutine.
@@ -41,31 +52,85 @@ func GID() uint64 {
 	return id
 }
 
-func Info(gid uint64, format string, a ...any) {
+func SetPrefix(prefix string) {
+	prefixLock.Lock()
+	defer prefixLock.Unlock()
+	logPrefix = prefix
+}
+
+func logLine(color, level string, gid uint64, format string, a ...any) {
 	msg := fmt.Sprintf(format, a...)
-	fmt.Printf("%s[INFO] [GID:%d] %s%s\n", ColorGreen, gid, msg, ColorReset)
+	prefix := ""
+	if logConfig.WithTime {
+		prefix = fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02 15:04:05"))
+	}
+	// 只为等级上色
+	coloredLevel := fmt.Sprintf("%s[%s]%s", color, level, ColorReset)
+
+	prefixLock.RLock()
+	p := logPrefix
+	prefixLock.RUnlock()
+	modPrefix := ""
+	if p != "" {
+		modPrefix = fmt.Sprintf("[%s] ", p)
+	}
+
+	// 最终格式：时间戳 + 彩色等级 + GID + 正文
+	line := fmt.Sprintf("%s%s %s[GID:%d] %s", prefix, coloredLevel, modPrefix, gid, msg)
+
+	logLock.Lock()
+	defer logLock.Unlock()
+
+	//console log
+	fmt.Println(line)
+
+	//file
+	if logConfig.LogToFile && fileHandle != nil {
+		fileHandle.WriteString(stripANSi(line) + "\n")
+	}
+}
+
+func stripANSi(s string) string {
+	return strings.ReplaceAll(
+		strings.ReplaceAll(
+			strings.ReplaceAll(
+				strings.ReplaceAll(s, ColorReset, ""),
+				ColorRed, ""),
+			ColorGreen, ""),
+		ColorYellow, "")
+
+}
+
+func Boot(gid uint64, format string, a ...any) {
+	logLine(ColorCyan, "BOOT", gid, format, a...)
+}
+
+func BootDone(duration time.Duration) {
+	gid := GID()
+	secs := float64(duration.Microseconds()) / 1e6
+	logLine(ColorCyan, "BOOT", gid, "服务器启动完成，用时 %.6f 秒", secs)
+}
+
+func Info(gid uint64, format string, a ...any) {
+	logLine(ColorGreen, "INFO", gid, format, a...)
 }
 
 func Warn(gid uint64, format string, a ...any) {
-	msg := fmt.Sprintf(format, a...)
-	fmt.Printf("%s[WARN] [GID:%d] %s%s\n", ColorYellow, gid, msg, ColorReset)
+	logLine(ColorYellow, "WARN", gid, format, a...)
 }
 
 func Error(gid uint64, format string, a ...any) {
-	msg := fmt.Sprintf(format, a...)
-	fmt.Printf("%s[ERROR] [GID:%d] %s%s\n", ColorRed, gid, msg, ColorReset)
+	logLine(ColorRed, "ERROR", gid, format, a...)
 }
 
 func Req(gid uint64, method, uri, proto string) {
-	msg := fmt.Sprintf("%s %s %s", method, uri, proto)
-	fmt.Printf("%s[REQ] [GID:%d] %s%s\n", ColorCyan, gid, msg, ColorReset)
+	logLine(ColorCyan, "REQ", gid, "%s %s %s", method, uri, proto)
 }
 
 func Hdr(gid uint64, key, value string) {
-	fmt.Printf("%s[HDR] [GID:%d] %s: %s%s\n", ColorCyan, gid, key, value, ColorReset)
+	logLine(ColorCyan, "HDR", gid, "%s: %s", key, strings.TrimSpace(value))
 }
 
 func Resp(gid uint64, status int, contentLength int, durationMs float64) {
-	fmt.Printf("%s[RESP] [GID:%d] %d OK (Content-Length: %d) - served in %.2fms%s\n",
-		ColorCyan, gid, status, contentLength, durationMs, ColorReset)
+	logLine(ColorCyan, "RESP", gid, "%d OK (Content-Length: %d) - served in %.2fms", status, contentLength, durationMs)
 }
