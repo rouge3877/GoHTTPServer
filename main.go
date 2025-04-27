@@ -5,15 +5,24 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
 	"github.com/Singert/xjtu_cnlab/core/server"
-	_ "github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 func main() {
+	globalconfig.GlobalConfig.StartTime = time.Now()
+	gid := talklog.GID()
 	// 初始化配置
 	globalconfig.InitConfig()
+	logConfig := &talklog.LogConfig{
+		LogToFile: globalconfig.GlobalConfig.Logger.LogToFile,
+		FilePath:  globalconfig.GlobalConfig.Logger.FilePath,
+		WithTime:  globalconfig.GlobalConfig.Logger.WithTime,
+	}
+	talklog.InitLogConfig(logConfig)
 
 	// 定义命令行参数（默认值来自配置）
 	directory := flag.String("d", globalconfig.GlobalConfig.Server.Workdir, "服务目录")
@@ -35,12 +44,16 @@ func main() {
 	flag.Parse()
 
 	// 合并配置
-	if *directory != "" {
-		globalconfig.GlobalConfig.Server.Workdir = *directory
-	}
 	if *protocol != "" {
 		globalconfig.GlobalConfig.Server.Proto = *protocol
 	}
+	talklog.Boot(gid, "服务器版本: %s", globalconfig.GlobalConfig.Server.Proto)
+
+	if *directory != "" {
+		globalconfig.GlobalConfig.Server.Workdir = *directory
+	}
+	talklog.Boot(gid, "提供目录: %s", globalconfig.GlobalConfig.Server.Workdir)
+
 	if *ipv4 != "" {
 		globalconfig.GlobalConfig.Server.IPv4 = *ipv4
 	}
@@ -48,12 +61,15 @@ func main() {
 		globalconfig.GlobalConfig.Server.IPv6 = *ipv6
 	}
 	if *isDualStack {
-		fmt.Println("ok")
+
 		globalconfig.GlobalConfig.Server.IsDualStack = *isDualStack
 	}
+	talklog.Boot(gid, "双栈支持: %t", globalconfig.GlobalConfig.Server.IsDualStack)
+
 	if *isCgi {
 		globalconfig.GlobalConfig.Server.IsCgi = *isCgi
 	}
+	talklog.Boot(gid, "CGI支持: %t", globalconfig.GlobalConfig.Server.IsCgi)
 
 	// 获取端口参数
 	args := flag.Args()
@@ -63,14 +79,11 @@ func main() {
 			globalconfig.GlobalConfig.Server.Port = p
 		}
 	}
+	talklog.Boot(gid, "监听端口: %d", globalconfig.GlobalConfig.Server.Port)
 
-	// 打印服务器信息
-	fmt.Printf("服务器版本: %s\n", globalconfig.GlobalConfig.Server.Proto)
-	fmt.Printf("提供目录: %s\n", globalconfig.GlobalConfig.Server.Workdir)
-	fmt.Printf("监听端口: %d\n", globalconfig.GlobalConfig.Server.Port)
-
+	// 启动服务器
 	if globalconfig.GlobalConfig.Server.IsDualStack {
-		fmt.Println("启用双栈支持")
+
 		// 启动双栈服务器
 		err := server.StartDualStackServer()
 		if err != nil {
@@ -78,7 +91,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		fmt.Printf("启用IPV4支持\n")
+
 		// 启动服务器
 		err := server.StartServer()
 		if err != nil {
@@ -86,5 +99,5 @@ func main() {
 			os.Exit(1)
 		}
 	}
-
 }
+
