@@ -14,7 +14,7 @@ var (
 	fileHandle *os.File
 	logLock    sync.Mutex
 	prefixLock sync.RWMutex
-	logPrefix  string = ""
+	logPrefix  map[uint64]string = make(map[uint64]string)
 )
 
 func InitLogConfig(lgcfg *LogConfig) {
@@ -52,10 +52,10 @@ func GID() uint64 {
 	return id
 }
 
-func SetPrefix(prefix string) {
+func SetPrefix(gid uint64, prefix string) {
 	prefixLock.Lock()
 	defer prefixLock.Unlock()
-	logPrefix = prefix
+	logPrefix[gid] = prefix
 }
 
 func logLine(color, level string, gid uint64, format string, a ...any) {
@@ -68,7 +68,7 @@ func logLine(color, level string, gid uint64, format string, a ...any) {
 	coloredLevel := fmt.Sprintf("%s[%s]%s", color, level, ColorReset)
 
 	prefixLock.RLock()
-	p := logPrefix
+	p := logPrefix[gid]
 	prefixLock.RUnlock()
 	modPrefix := ""
 	if p != "" {
@@ -132,5 +132,5 @@ func Hdr(gid uint64, key, value string) {
 }
 
 func Resp(gid uint64, status int, contentLength int, durationMs float64) {
-	logLine(ColorCyan, "RESP", gid, "%d OK (Content-Length: %d) - served in %.2fms", status, contentLength, durationMs)
+	logLine(ColorCyan, "RESP", gid, "%d OK (Content-Length: %d) - served in %.8fms", status, contentLength, durationMs)
 }

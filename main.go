@@ -87,6 +87,7 @@ func main() {
 		// 启动双栈服务器
 		err := server.StartDualStackServer()
 		if err != nil {
+			talklog.Boot(gid, "启动双栈服务器失败: %v", err)
 			fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
 			os.Exit(1)
 		}
@@ -95,9 +96,9 @@ func main() {
 		// 启动服务器
 		err := server.StartServer()
 		if err != nil {
+			talklog.Boot(gid, "启动服务器失败: %v", err)
 			fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
 			os.Exit(1)
 		}
 	}
 }
-
