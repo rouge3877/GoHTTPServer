@@ -95,7 +95,7 @@ const defaultErrorMessageFormat = `<!DOCTYPE HTML>
 <html lang="en">
     <head>
         <meta charset="utf-8">
-        <title>Error response</title>
+        <title>Error response :( </title>
     </head>
     <body>
         <h1>Error response</h1>
@@ -612,7 +612,7 @@ func NewSimpleHTTPRequestHandler(conn net.Conn) *SimpleHTTPRequestHandler {
 
 // DoGET 处理GET请求
 func (h *SimpleHTTPRequestHandler) DoGET() {
-	fmt.Println("DoGETin simple!!!")
+	// fmt.Println("DoGETin simple!!!")
 	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
@@ -930,7 +930,7 @@ func (h *CGIHTTPRequestHandler) DoPOST() {
 
 // sendCGIHeaders 发送CGI响应头
 func (h *CGIHTTPRequestHandler) SendHead() (*os.File, error) {
-	fmt.Println("SendHead in CGI!!!")
+	// fmt.Println("SendHead in CGI!!!")
 	if h.IsCGIScript() {
 		h.RunCGI()
 		return nil, nil
