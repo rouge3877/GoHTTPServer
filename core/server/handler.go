@@ -143,7 +143,10 @@ type BaseHTTPRequestHandler struct {
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
 func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
-
+	clientAddr := ""
+	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		clientAddr = addr.IP.String()
+	}
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
 		RFile:                 bufio.NewReader(conn),
@@ -156,6 +159,7 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		ProtocolVersion:       globalconfig.GlobalConfig.Server.Proto,
 		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
+		ClientAddress:         clientAddr,
 	}
 }
 
