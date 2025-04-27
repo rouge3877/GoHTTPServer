@@ -24,6 +24,7 @@ type Config struct {
 		FilePath  string
 		WithTime  bool
 	}
+	StartTime time.Time
 }
 
 var GlobalConfig Config
