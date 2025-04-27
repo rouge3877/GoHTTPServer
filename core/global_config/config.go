@@ -3,6 +3,7 @@ package globalconfig
 import (
 	"fmt"
 	"os"
+	"time"
 
 	_ "github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -32,7 +33,7 @@ var GlobalConfig Config
 func InitConfig() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yml")
-	viper.AddConfigPath("./server/global_config")
+	viper.AddConfigPath("./core/global_config")
 
 	if error := viper.ReadInConfig(); error != nil {
 		fmt.Printf("Error reading config file: %s\n", error)

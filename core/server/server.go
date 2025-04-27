@@ -11,7 +11,7 @@ import (
 	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
-	_ "github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能
