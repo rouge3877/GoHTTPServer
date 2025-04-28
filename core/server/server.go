@@ -12,6 +12,7 @@ import (
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/handler"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能
@@ -92,10 +93,10 @@ func (s *HTTPServer) Serve() error {
 			defer c.Close()
 			// 创建请求处理器并处理请求
 			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(c)
+				handler := handler.NewCGIHTTPRequestHandler(c)
 				handler.Handle()
 			} else {
-				handler := NewSimpleHTTPRequestHandler(c)
+				handler := handler.NewSimpleHTTPRequestHandler(c)
 				handler.Handle()
 			}
 		}(conn)
@@ -215,10 +216,10 @@ func (s *DualStackServer) Serve() error {
 
 			// 创建请求处理器并处理请求
 			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(c)
+				handler := handler.NewCGIHTTPRequestHandler(c)
 				handler.Handle()
 			} else {
-				handler := NewSimpleHTTPRequestHandler(c)
+				handler := handler.NewSimpleHTTPRequestHandler(c)
 				handler.Handle()
 			}
 
