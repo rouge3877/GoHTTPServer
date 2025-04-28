@@ -4,15 +4,22 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/Singert/xjtu_cnlab/app"
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 func main() {
+
+	var httpServer server.ServerInterface
+
 	globalconfig.GlobalConfig.StartTime = time.Now()
 	gid := talklog.GID()
 	// 初始化配置
@@ -85,20 +92,56 @@ func main() {
 	if globalconfig.GlobalConfig.Server.IsDualStack {
 
 		// 启动双栈服务器
-		err := server.StartDualStackServer()
+		srv, err := server.StartDualStackServer()
 		if err != nil {
 			talklog.Boot(gid, "启动双栈服务器失败: %v", err)
 			fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
 			os.Exit(1)
 		}
+		httpServer = srv
 	} else {
 
 		// 启动服务器
-		err := server.StartServer()
+		srv, err := server.StartServer()
 		if err != nil {
 			talklog.Boot(gid, "启动服务器失败: %v", err)
 			fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
 			os.Exit(1)
 		}
+		httpServer = srv
 	}
+
+	//注册路由函数
+	httpServer.GetRouter().RegisterRoute("GET", "/", app.HandleRoot)
+	httpServer.GetRouter().RegisterRoute("GET", "/hello", app.HandleHello)
+
+	httpServer.GetRouter().RegisterGroupRoute("/api", func(g *router.Group) {
+		g.RegisterRoute("GET", "/register", app.HandleRegister)
+		g.RegisterRoute("GET", "/login", app.HandleLogin)
+	})
+	go func() {
+		err := httpServer.Serve()
+		if err != nil {
+			talklog.Boot(gid, "服务器启动失败: %v", err)
+			fmt.Fprintf(os.Stderr, "服务器启动失败: %v\n", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 等待服务器关闭
+	// 捕获系统信号 (Ctrl+C / kill)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	// 阻塞直到收到信号
+	sig := <-quit
+	talklog.Boot(gid, "收到信号 %s，正在关机...", sig)
+
+	// 调用服务器优雅关机
+	if err := httpServer.Shutdown(); err != nil {
+		talklog.Boot(gid, "服务器关机失败: %v", err)
+	} else {
+		talklog.Boot(gid, "服务器关机完成")
+	}
+
 }

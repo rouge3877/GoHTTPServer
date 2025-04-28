@@ -11,8 +11,15 @@ import (
 	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
+
+type ServerInterface interface {
+	Serve() error
+	GetRouter() *router.Router
+	Shutdown() error
+}
 
 // HTTPServer 实现基本的HTTP服务器功能
 type HTTPServer struct {
@@ -24,6 +31,15 @@ type HTTPServer struct {
 	ShutdownCtx    context.Context    // 关闭上下文
 	ShutdownCancel context.CancelFunc // 关闭取消函数
 	Wg             sync.WaitGroup     // 等待组，用于等待所有请求处理完成
+	Router         *router.Router     // 路由器，用于处理请求
+}
+
+func (s *DualStackServer) GetRouter() *router.Router {
+	return s.Router
+}
+
+func (s *ThreadingHTTPServer) GetRouter() *router.Router {
+	return s.Router
 }
 
 // NewHTTPServer 创建一个新的HTTP服务器
@@ -34,6 +50,7 @@ func NewHTTPServer(addr string) *HTTPServer {
 		AllowReuse:     true,
 		ShutdownCtx:    ctx,
 		ShutdownCancel: cancel,
+		Router:         router.NewRouter(),
 	}
 }
 
@@ -92,10 +109,10 @@ func (s *HTTPServer) Serve() error {
 			defer c.Close()
 			// 创建请求处理器并处理请求
 			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(c)
+				handler := NewCGIHTTPRequestHandler(s, c)
 				handler.Handle()
 			} else {
-				handler := NewSimpleHTTPRequestHandler(c)
+				handler := NewSimpleHTTPRequestHandler(s, c)
 				handler.Handle()
 			}
 		}(conn)
@@ -127,24 +144,26 @@ func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 }
 
 // StartServer 启动HTTP服务器的便捷函数
-func StartServer() error {
+func StartServer() (*ThreadingHTTPServer, error) {
 	addr := fmt.Sprintf("%s:%d", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port)
 	server := NewThreadingHTTPServer(addr)
 
 	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port)
 	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
-	return server.Serve()
+
+	return server, nil
 }
 
 // StartDualStackServer 启动双栈HTTP服务器的便捷函数
-func StartDualStackServer() error {
+func StartDualStackServer() (*DualStackServer, error) {
 	addr := fmt.Sprintf("[%s]:%d", globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port)
 	server := NewDualStackServer(addr, globalconfig.GlobalConfig.Server.Workdir)
 
 	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
 		globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Workdir)
 	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
-	return server.Serve()
+
+	return server, nil
 }
 
 // DualStackServer 支持双栈(IPv4/IPv6)的HTTP服务器
@@ -215,10 +234,10 @@ func (s *DualStackServer) Serve() error {
 
 			// 创建请求处理器并处理请求
 			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(c)
+				handler := NewCGIHTTPRequestHandler(s.HTTPServer, c)
 				handler.Handle()
 			} else {
-				handler := NewSimpleHTTPRequestHandler(c)
+				handler := NewSimpleHTTPRequestHandler(s.HTTPServer, c)
 				handler.Handle()
 			}
 

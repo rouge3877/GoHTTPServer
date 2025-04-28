@@ -1,6 +1,6 @@
 package router
 
-type HandlerFunc func(Context)
+type HandlerFunc func(*Context)
 
 type Context struct {
 	Method  string
@@ -20,6 +20,11 @@ type RouteEntry struct {
 
 type Router struct {
 	routes []RouteEntry
+}
+
+type Group struct {
+	prefix string
+	route  *Router
 }
 
 func NewRouter() *Router {

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
@@ -138,6 +139,7 @@ type BaseHTTPRequestHandler struct {
 	ProtocolVersion       string            // 协议版本
 	DefaultRequestVersion string            // 默认请求版本
 	HeadersBuffer         [][]byte          // 响应头缓冲区
+	Server                *HTTPServer
 
 	ProcessMethod ProcessMethod // 处理方法接口
 }
@@ -627,11 +629,12 @@ type SimpleHTTPRequestHandler struct {
 }
 
 // NewSimpleHTTPRequestHandler 创建一个新的简单HTTP请求处理器
-func NewSimpleHTTPRequestHandler(conn net.Conn) *SimpleHTTPRequestHandler {
+func NewSimpleHTTPRequestHandler(server *HTTPServer, conn net.Conn) *SimpleHTTPRequestHandler {
 	handler := &SimpleHTTPRequestHandler{
 		BaseHTTPRequestHandler: NewBaseHTTPRequestHandler(conn),
 		Directory:              globalconfig.GlobalConfig.Server.Workdir,
 	}
+	handler.Server = server         // 设置服务器引用
 	handler.ProcessMethod = handler // 设置处理方法为自身
 	return handler
 }
@@ -640,6 +643,17 @@ func NewSimpleHTTPRequestHandler(conn net.Conn) *SimpleHTTPRequestHandler {
 func (h *SimpleHTTPRequestHandler) DoGET() {
 	gid := talklog.GID()
 	talklog.Info(gid, "Processing GET request for %s", h.Path)
+	if handlerFunc, found := h.Server.Router.MatchRoute(h.Command, h.Path); found {
+		ctx := &router.Context{
+			Method:  "GET",
+			Path:    h.Path,
+			Headers: h.Headers,
+			Conn:    h.Conn,
+		}
+		handlerFunc(ctx)
+		h.WFile.Flush()
+		return
+	}
 	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
@@ -662,6 +676,17 @@ func (h *SimpleHTTPRequestHandler) DoHEAD() {
 
 // DoPOST handles file upload with support for target path
 func (h *SimpleHTTPRequestHandler) DoPOST() {
+	if handlerFunc, found := h.Server.Router.MatchRoute(h.Command, h.Path); found {
+		ctx := &router.Context{
+			Method:  "POST",
+			Path:    h.Path,
+			Headers: h.Headers,
+			Conn:    h.Conn,
+		}
+		handlerFunc(ctx)
+		h.WFile.Flush()
+		return
+	}
 	contentType := h.Headers["Content-Type"]
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
@@ -828,9 +853,9 @@ type CGIHTTPRequestHandler struct {
 }
 
 // NewCGIHTTPRequestHandler 创建一个新的CGI HTTP请求处理器
-func NewCGIHTTPRequestHandler(conn net.Conn) *CGIHTTPRequestHandler {
+func NewCGIHTTPRequestHandler(server *HTTPServer, conn net.Conn) *CGIHTTPRequestHandler {
 	handler := &CGIHTTPRequestHandler{
-		SimpleHTTPRequestHandler: NewSimpleHTTPRequestHandler(conn),
+		SimpleHTTPRequestHandler: NewSimpleHTTPRequestHandler(server, conn),
 		CGIDirectories:           []string{"/cgi-bin", "/htbin", "/cgi", "/api", "app"},
 	}
 	handler.ProcessMethod = handler
