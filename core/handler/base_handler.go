@@ -8,7 +8,6 @@ import (
 	"net"
 	"net/textproto"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -61,8 +60,8 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		RFile:                 bufio.NewReader(conn),
 		WFile:                 bufio.NewWriter(conn),
 		CloseConnection:       true,
-		ServerVersion:         GoHTTPServerName() + "/" + strings.Split(GoHTTPServerVersion(), " ")[0],
-		SysVersion:            "Go/" + strings.Split(GoVersion(), " ")[0],
+		ServerVersion:         globalconfig.GoHTTPServerName() + "/" + strings.Split(globalconfig.GoHTTPServerVersion(), " ")[0],
+		SysVersion:            "Go/" + strings.Split(globalconfig.GoVersion(), " ")[0],
 		ErrorMessageFormat:    defaultErrorMessageFormat,
 		ErrorContentType:      defaultErrorContentType,
 		ProtocolVersion:       globalconfig.GlobalConfig.Server.Proto,
@@ -72,23 +71,6 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 	}
 }
 
-// GoVersion 返回Go版本
-func GoVersion() string {
-	go_v := runtime.Version()
-	go_v = strings.TrimPrefix(go_v, "go")
-	return go_v
-}
-
-var __VERSION__ = "0.01"
-var __SERVER_NAME__ = "GoHTTPServer"
-
-func GoHTTPServerVersion() string {
-	return __VERSION__
-}
-
-func GoHTTPServerName() string {
-	return __SERVER_NAME__
-}
 
 // Handle 处理HTTP请求
 func (h *BaseHTTPRequestHandler) Handle() {

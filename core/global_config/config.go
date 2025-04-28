@@ -3,6 +3,8 @@ package globalconfig
 import (
 	"fmt"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	_ "github.com/joho/godotenv"
@@ -43,4 +45,22 @@ func InitConfig() {
 		fmt.Printf("Unable to decode into struct: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// GoVersion 返回Go版本
+func GoVersion() string {
+	go_v := runtime.Version()
+	go_v = strings.TrimPrefix(go_v, "go")
+	return go_v
+}
+
+var __VERSION__ = "0.01"
+var __SERVER_NAME__ = "GoHTTPServer"
+
+func GoHTTPServerVersion() string {
+	return __VERSION__
+}
+
+func GoHTTPServerName() string {
+	return __SERVER_NAME__
 }

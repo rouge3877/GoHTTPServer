@@ -8,7 +8,8 @@ import (
 	"path"
 	"strings"
 	"net/url"
-	
+
+	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
@@ -215,7 +216,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	env := make([]string, 0)
 
 	// 添加基本环境变量
-	env = append(env, fmt.Sprintf("SERVER_SOFTWARE=%s/%s", GoHTTPServerName(), GoHTTPServerVersion()))
+	env = append(env, fmt.Sprintf("SERVER_SOFTWARE=%s/%s", globalconfig.GoHTTPServerName(), globalconfig.GoHTTPServerVersion()))
 	env = append(env, fmt.Sprintf("SERVER_NAME=%s", h.ServerVersion))
 	env = append(env, fmt.Sprintf("GATEWAY_INTERFACE=CGI/1.1"))
 	env = append(env, fmt.Sprintf("SERVER_PROTOCOL=%s", h.RequestVersion))
