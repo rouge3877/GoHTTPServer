@@ -3,6 +3,7 @@ package globalconfig
 import (
 	"fmt"
 	"os"
+	"time"
 
 	_ "github.com/joho/godotenv"
 	"github.com/spf13/viper"
@@ -24,6 +25,7 @@ type Config struct {
 		FilePath  string
 		WithTime  bool
 	}
+	StartTime time.Time
 }
 
 var GlobalConfig Config

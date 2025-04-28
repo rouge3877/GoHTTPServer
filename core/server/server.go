@@ -8,10 +8,10 @@ import (
 	"os/user"
 	"strconv"
 	"sync"
-	_ "time"
+	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
-	_ "github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 // HTTPServer 实现基本的HTTP服务器功能
@@ -132,6 +132,7 @@ func StartServer() error {
 	server := NewThreadingHTTPServer(addr)
 
 	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port)
+	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
 	return server.Serve()
 }
 
@@ -142,6 +143,7 @@ func StartDualStackServer() error {
 
 	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
 		globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Workdir)
+	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
 	return server.Serve()
 }
 

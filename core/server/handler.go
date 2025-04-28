@@ -24,6 +24,7 @@ import (
 	"time"
 
 	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 // HTTPStatus 定义HTTP状态码常量
@@ -143,7 +144,10 @@ type BaseHTTPRequestHandler struct {
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
 func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
-
+	clientAddr := ""
+	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
+		clientAddr = addr.IP.String()
+	}
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
 		RFile:                 bufio.NewReader(conn),
@@ -156,6 +160,7 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		ProtocolVersion:       globalconfig.GlobalConfig.Server.Proto,
 		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
+		ClientAddress:         clientAddr,
 	}
 }
 
@@ -190,9 +195,11 @@ func (h *BaseHTTPRequestHandler) Handle() {
 // HandleOneRequest 处理单个HTTP请求
 func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 	try := func() {
-
+		gid := talklog.GID()
+		talklog.SetPrefix(gid, "HTTP")
+		talklog.Info(gid, "New request from %s", h.ClientAddress)
 		if h.RFile == nil {
-			fmt.Fprintf(os.Stderr, "Error: RFile is nil\n")
+			talklog.Error(gid, "RFile is nil")
 			h.CloseConnection = true
 			return
 		}
@@ -201,7 +208,7 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		requestLine, err := h.RFile.ReadString('\n')
 		if err != nil {
 			if err != io.EOF {
-				fmt.Fprintf(os.Stderr, "Error reading request line: %v\n", err)
+				talklog.Error(gid, "Error reading request line: %v", err)
 			}
 			h.CloseConnection = true
 			return
@@ -224,9 +231,14 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 
 		// 解析请求
 		if !h.ParseRequest(requestLine) {
+			talklog.Warn(gid, "Parse request failed: %s", requestLine)
 			// 错误已经发送，直接返回
 			return
 		}
+		for k, v := range h.Headers {
+			talklog.Hdr(gid, k, v)
+		}
+		talklog.Req(gid, h.Command, h.Path, h.RequestVersion)
 		// 根据请求命令调用相应的处理方法
 		mname := "Do" + h.Command
 		method := h.GetMethod(mname)
@@ -239,12 +251,15 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		method()
 		// 刷新响应
 		h.WFile.Flush()
+
+		talklog.Info(gid, "Request processed successfully: %s %s", h.RequestLine, h.Path)
 	}
 
 	// 捕获超时错误
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Fprintf(os.Stderr, "Request timed out: %v\n", r)
+			gid := talklog.GID()
+			talklog.Error(gid, "Request timed out: %v", r)
 			h.CloseConnection = true
 		}
 	}()
@@ -478,10 +493,21 @@ func (h *BaseHTTPRequestHandler) LogError(format string, args ...interface{}) {
 
 // SendResponse 发送响应
 func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
+	contentLength := 0
+	if h.HeadersBuffer != nil {
+		contentLength = len(h.HeadersBuffer)
+	}
+	startTime := time.Now()
+
 	h.LogRequest(code, 0)
 	h.SendResponseOnly(code, message)
 	h.SendHeader("Server", h.VersionString())
 	h.SendHeader("Date", h.DateTimeString())
+
+	duration := time.Since(startTime).Milliseconds()
+
+	talklog.Resp(talklog.GID(), int(code), contentLength, float64(duration))
+
 }
 
 // SendResponseOnly 只发送响应行
@@ -612,7 +638,8 @@ func NewSimpleHTTPRequestHandler(conn net.Conn) *SimpleHTTPRequestHandler {
 
 // DoGET 处理GET请求
 func (h *SimpleHTTPRequestHandler) DoGET() {
-	// fmt.Println("DoGETin simple!!!")
+	gid := talklog.GID()
+	talklog.Info(gid, "Processing GET request for %s", h.Path)
 	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
@@ -941,6 +968,8 @@ func (h *CGIHTTPRequestHandler) SendHead() (*os.File, error) {
 
 // RunCGI 执行CGI脚本
 func (h *CGIHTTPRequestHandler) RunCGI() {
+	gid := talklog.GID()
+	talklog.SetPrefix(gid, "CGI")
 	dir := h.cgiInfo[0]
 	rest := h.cgiInfo[1]
 	scriptPath := path.Join(dir, rest)
@@ -961,7 +990,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 			break
 		}
 	}
-
+	talklog.Info(gid, "Ready to run CGI script: %s", scriptPath)
 	// 解析查询字符串
 	rest, query, _ := strings.Cut(rest, "?")
 
@@ -983,16 +1012,19 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	scriptStat, err := os.Stat(scriptFile)
 	if os.IsNotExist(err) {
 		h.SendError(NOT_FOUND, fmt.Sprintf("No such CGI script (%q)", scriptName))
+		talklog.Warn(gid, "CGI script not found: %s", scriptPath)
 		return
 	}
 	if !scriptStat.Mode().IsRegular() {
 		h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not a plain file (%q)", scriptName))
+		talklog.Warn(gid, "CGI script is not a plain file: %s", scriptPath)
 		return
 	}
 
 	// 检查执行权限
 	if !isExecutable(scriptFile) {
 		h.SendError(FORBIDDEN, fmt.Sprintf("CGI script is not executable (%q)", scriptName))
+		talklog.Warn(gid, "CGI script is not executable: %s", scriptPath)
 		return
 	}
 
@@ -1001,6 +1033,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 
 	// 发送响应头
 	h.SendResponse(OK, "Script output follows")
+
 	h.FlushHeaders()
 
 	// 构建执行命令
@@ -1023,12 +1056,14 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
 		h.LogError("Error creating stderr pipe: %v", err)
+		talklog.Warn(gid, "Error creating stderr pipe: %v", err)
 		return
 	}
 	go func() {
 		defer stderr.Close()
 		if slurm, err := io.ReadAll(stderr); err == nil && len(slurm) > 0 {
 			h.LogError("CGI stderr: %s", string(slurm))
+			talklog.Warn(gid, "CGI stderr: %s", string(slurm))
 		}
 	}()
 
@@ -1042,11 +1077,13 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	if err := cmd.Wait(); err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			h.LogError("CGI script exited with code %d", exitErr.ExitCode())
+			talklog.Warn(gid, "CGI script exited with code %d", exitErr.ExitCode())
 		} else {
 			h.LogError("CGI script error: %v", err)
+			talklog.Warn(gid, "CGI script error: %v", err)
 		}
 	}
-
+	talklog.Info(gid, "CGI script executed successfully: %s", scriptPath)
 	h.WFile.Flush()
 }
 
