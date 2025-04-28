@@ -10,15 +10,16 @@ import (
 	"sync"
 	"time"
 
-	globalconfig "github.com/Singert/xjtu_cnlab/core/global_config"
+	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 type ServerInterface interface {
-	Serve() error
 	GetRouter() *router.Router
 	Shutdown() error
+	ServerBind() error
+	GetHTTPServer() *HTTPServer
 }
 
 // HTTPServer 实现基本的HTTP服务器功能
@@ -42,6 +43,14 @@ func (s *ThreadingHTTPServer) GetRouter() *router.Router {
 	return s.Router
 }
 
+func (s *HTTPServer) GetHTTPServer() *HTTPServer {
+	return s
+}
+
+func (s *DualStackServer) GetHTTPServer() *HTTPServer {
+	return s.HTTPServer
+}
+
 // NewHTTPServer 创建一个新的HTTP服务器
 func NewHTTPServer(addr string) *HTTPServer {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -55,7 +64,7 @@ func NewHTTPServer(addr string) *HTTPServer {
 }
 
 // ServerBind 绑定服务器地址并存储服务器名称
-func (s *HTTPServer) ServerBind() error {
+func (s *ThreadingHTTPServer) ServerBind() error {
 	listener, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		return err
@@ -84,40 +93,36 @@ func (s *HTTPServer) ServerBind() error {
 }
 
 // Serve 开始服务
-func (s *HTTPServer) Serve() error {
-	if s.Listener == nil {
-		if err := s.ServerBind(); err != nil {
-			return err
-		}
-	}
+// func (s *HTTPServer) Serve() error {
+// 	if s.Listener == nil {
+// 		if err := s.ServerBind(); err != nil {
+// 			return err
+// 		}
+// 	}
 
-	for {
-		conn, err := s.Listener.Accept()
-		if err != nil {
-			select {
-			case <-s.ShutdownCtx.Done():
-				return nil
-			default:
-				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
-				continue
-			}
-		}
+// 	for {
+// 		conn, err := s.Listener.Accept()
+// 		if err != nil {
+// 			select {
+// 			case <-s.ShutdownCtx.Done():
+// 				return nil
+// 			default:
+// 				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
+// 				continue
+// 			}
+// 		}
 
-		s.Wg.Add(1)
-		go func(c net.Conn) {
-			defer s.Wg.Done()
-			defer c.Close()
-			// 创建请求处理器并处理请求
-			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(s, c)
-				handler.Handle()
-			} else {
-				handler := NewSimpleHTTPRequestHandler(s, c)
-				handler.Handle()
-			}
-		}(conn)
-	}
-}
+// 		s.Wg.Add(1)
+// 		go func(c net.Conn) {
+// 			defer s.Wg.Done()
+// 			defer c.Close()
+// 			// 创建请求处理器并处理请求
+// 			handler := handler.NewHTTPRequestHandler(s, c, config.Cfg.Server.IsCgi)
+// 			handler.Handle()
+
+// 		}(conn)
+// 	}
+// }
 
 // Shutdown 关闭服务器
 func (s *HTTPServer) Shutdown() error {
@@ -145,23 +150,23 @@ func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 
 // StartServer 启动HTTP服务器的便捷函数
 func StartServer() (*ThreadingHTTPServer, error) {
-	addr := fmt.Sprintf("%s:%d", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port)
+	addr := fmt.Sprintf("%s:%d", config.Cfg.Server.IPv4, config.Cfg.Server.Port)
 	server := NewThreadingHTTPServer(addr)
 
-	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", globalconfig.GlobalConfig.Server.IPv4, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port)
-	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
+	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", config.Cfg.Server.IPv4, config.Cfg.Server.Port, config.Cfg.Server.Port)
+	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return server, nil
 }
 
 // StartDualStackServer 启动双栈HTTP服务器的便捷函数
 func StartDualStackServer() (*DualStackServer, error) {
-	addr := fmt.Sprintf("[%s]:%d", globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port)
-	server := NewDualStackServer(addr, globalconfig.GlobalConfig.Server.Workdir)
+	addr := fmt.Sprintf("[%s]:%d", config.Cfg.Server.IPv6, config.Cfg.Server.Port)
+	server := NewDualStackServer(addr, config.Cfg.Server.Workdir)
 
 	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
-		globalconfig.GlobalConfig.Server.IPv6, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Port, globalconfig.GlobalConfig.Server.Workdir)
-	talklog.BootDone(time.Since(globalconfig.GlobalConfig.StartTime))
+		config.Cfg.Server.IPv6, config.Cfg.Server.Port, config.Cfg.Server.Port, config.Cfg.Server.Workdir)
+	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return server, nil
 }
@@ -209,41 +214,41 @@ func (s *DualStackServer) ServerBind() error {
 }
 
 // / Serve 开始服务(双栈)
-func (s *DualStackServer) Serve() error {
-	if s.Listener == nil {
-		if err := s.ServerBind(); err != nil {
-			return err
-		}
-	}
-	for {
-		conn, err := s.Listener.Accept()
-		if err != nil {
-			select {
-			case <-s.ShutdownCtx.Done():
-				return nil
-			default:
-				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
-				continue
-			}
-		}
+// func (s *DualStackServer) Serve() error {
+// 	if s.Listener == nil {
+// 		if err := s.ServerBind(); err != nil {
+// 			return err
+// 		}
+// 	}
+// 	for {
+// 		conn, err := s.Listener.Accept()
+// 		if err != nil {
+// 			select {
+// 			case <-s.ShutdownCtx.Done():
+// 				return nil
+// 			default:
+// 				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
+// 				continue
+// 			}
+// 		}
 
-		s.Wg.Add(1)
-		go func(c net.Conn) {
-			defer s.Wg.Done()
-			defer c.Close()
+// 		s.Wg.Add(1)
+// 		go func(c net.Conn) {
+// 			defer s.Wg.Done()
+// 			defer c.Close()
 
-			// 创建请求处理器并处理请求
-			if globalconfig.GlobalConfig.Server.IsCgi {
-				handler := NewCGIHTTPRequestHandler(s.HTTPServer, c)
-				handler.Handle()
-			} else {
-				handler := NewSimpleHTTPRequestHandler(s.HTTPServer, c)
-				handler.Handle()
-			}
+// 			// 创建请求处理器并处理请求
+// 			if config.Cfg.Server.IsCgi {
+// 				handler := NewCGIHTTPRequestHandler(s.HTTPServer, c)
+// 				handler.Handle()
+// 			} else {
+// 				handler := NewSimpleHTTPRequestHandler(s.HTTPServer, c)
+// 				handler.Handle()
+// 			}
 
-		}(conn)
-	}
-}
+// 		}(conn)
+// 	}
+// }
 
 // Shutdown 关闭服务器(双栈)
 func (s *DualStackServer) Shutdown() error {
