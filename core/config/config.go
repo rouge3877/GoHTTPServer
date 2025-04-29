@@ -14,6 +14,8 @@ import (
 type Config struct {
 	Server struct {
 		Port        int
+		HTTPPort    int
+		HTTPSPort   int
 		Proto       string
 		IsCgi       bool
 		Workdir     string
@@ -21,6 +23,10 @@ type Config struct {
 		IPv6        string
 		IsDualStack bool
 		DeadLine    time.Duration
+		EnableTLS   bool
+		CertFile    string
+		KeyFile     string
+		ForceIPV4   bool
 	}
 
 	Logger struct {

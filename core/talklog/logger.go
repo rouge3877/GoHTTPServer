@@ -96,7 +96,6 @@ func logLine(color, level string, gid uint64, format string, a ...any) {
 
 	//console log
 	fmt.Println(line)
-
 	// memory buffer
 	bufferLock.Lock()
 	logBuffer = append(logBuffer, stripANSi(line))
