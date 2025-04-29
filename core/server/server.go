@@ -37,6 +37,7 @@ type HTTPServer struct {
 	ShutdownCancel context.CancelFunc // 关闭取消函数
 	Wg             sync.WaitGroup     // 等待组，用于等待所有请求处理完成
 	Router         *router.Router     // 路由器，用于处理请求
+	EnableTLS      bool
 	ConnCount      atomic.Int32
 }
 
@@ -65,7 +66,7 @@ func (s *DualStackServer) GetHTTPServer() *HTTPServer {
 }
 
 // NewHTTPServer 创建一个新的HTTP服务器
-func NewHTTPServer(addr string) *HTTPServer {
+func NewHTTPServer(addr string, enbaleTLS bool) *HTTPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &HTTPServer{
 		Addr:           addr,
@@ -73,6 +74,7 @@ func NewHTTPServer(addr string) *HTTPServer {
 		ShutdownCtx:    ctx,
 		ShutdownCancel: cancel,
 		Router:         router.NewRouter(),
+		EnableTLS:      enbaleTLS,
 	}
 }
 
@@ -93,7 +95,7 @@ func (s *ThreadingHTTPServer) ServerBind() error {
 		network = "tcp4"
 		talklog.Boot(talklog.GID(), "强制IPV4")
 	}
-	if config.Cfg.Server.EnableTLS {
+	if s.EnableTLS {
 		cert, err := tls.LoadX509KeyPair(config.Cfg.Server.CertFile, config.Cfg.Server.KeyFile)
 		if err != nil {
 			talklog.Boot(talklog.GID(), "Error loading TLS certificate and key: %v", err)
@@ -154,17 +156,17 @@ type ThreadingHTTPServer struct {
 }
 
 // NewThreadingHTTPServer 创建一个新的支持并发的HTTP服务器
-func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
+func NewThreadingHTTPServer(addr string, enableTLS bool) *ThreadingHTTPServer {
 	return &ThreadingHTTPServer{
-		HTTPServer:    NewHTTPServer(addr),
+		HTTPServer:    NewHTTPServer(addr, enableTLS),
 		DaemonThreads: true,
 	}
 }
 
 // StartServer 启动HTTP服务器的便捷函数
-func StartServer() (*ThreadingHTTPServer, error) {
+func StartServer(enableTLS bool) (*ThreadingHTTPServer, error) {
 	addr := fmt.Sprintf("%s:%d", config.Cfg.Server.IPv4, config.Cfg.Server.Port)
-	server := NewThreadingHTTPServer(addr)
+	server := NewThreadingHTTPServer(addr, enableTLS)
 	serverType := ""
 	if config.Cfg.Server.EnableTLS {
 		serverType = "HTTPS"
@@ -178,9 +180,9 @@ func StartServer() (*ThreadingHTTPServer, error) {
 }
 
 // StartDualStackServer 启动双栈HTTP服务器的便捷函数
-func StartDualStackServer() (*DualStackServer, error) {
+func StartDualStackServer(enableTLS bool) (*DualStackServer, error) {
 	addr := fmt.Sprintf("[%s]:%d", config.Cfg.Server.IPv6, config.Cfg.Server.Port)
-	server := NewDualStackServer(addr, config.Cfg.Server.Workdir)
+	server := NewDualStackServer(addr, config.Cfg.Server.Workdir, enableTLS)
 	serverType := ""
 	if config.Cfg.Server.EnableTLS {
 		serverType = "HTTPS"
@@ -201,9 +203,9 @@ type DualStackServer struct {
 }
 
 // NewDualStackServer 创建一个新的支持双栈的HTTP服务器
-func NewDualStackServer(addr string, directory string) *DualStackServer {
+func NewDualStackServer(addr string, directory string, enableTLS bool) *DualStackServer {
 	return &DualStackServer{
-		ThreadingHTTPServer: NewThreadingHTTPServer(addr),
+		ThreadingHTTPServer: NewThreadingHTTPServer(addr, enableTLS),
 		Directory:           directory,
 	}
 }

@@ -117,7 +117,7 @@ func main() {
 			// 先创建HTTP服务器实例
 			config.Cfg.Server.EnableTLS = false
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
-			srv, err := server.StartDualStackServer()
+			srv, err := server.StartDualStackServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
@@ -127,7 +127,7 @@ func main() {
 			// 后创建HTTPS服务器实例
 			config.Cfg.Server.EnableTLS = true
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPSPort
-			srv, err = server.StartDualStackServer()
+			srv, err = server.StartDualStackServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
@@ -137,7 +137,7 @@ func main() {
 		} else {
 			// 仅创建HTTP服务器实例
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
-			srv, err := server.StartDualStackServer()
+			srv, err := server.StartDualStackServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
@@ -162,7 +162,7 @@ func main() {
 			// 先创建HTTP服务器实例
 			config.Cfg.Server.EnableTLS = false
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
-			srv, err := server.StartServer()
+			srv, err := server.StartServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
@@ -172,7 +172,7 @@ func main() {
 			// 后创建HTTPS服务器实例
 			config.Cfg.Server.EnableTLS = true
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPSPort
-			srv, err = server.StartServer()
+			srv, err = server.StartServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
@@ -182,7 +182,7 @@ func main() {
 		} else {
 			// 仅创建HTTP服务器实例
 			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
-			srv, err := server.StartServer()
+			srv, err := server.StartServer(config.Cfg.Server.EnableTLS)
 			if err != nil {
 				talklog.Boot(gid, "创建服务器实例失败: %v", err)
 				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
