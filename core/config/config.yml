@@ -1,5 +1,6 @@
 server:
-  Port: 8000
+  HTTPPort: 8000
+  HTTPSPort: 8442
   Proto: HTTP/1.1
   IsCgi: false
   Workdir: "./statics"
@@ -11,6 +12,10 @@ server:
   CGIDirectories:
     - "cgi-bin"
     - "bin"
+  EnableTLS: true
+  CertFile: "./certs/server.crt"
+  KeyFile: "./certs/server.key"
+  ForceIPV4: true
 
 logger:
   LogToFile: true

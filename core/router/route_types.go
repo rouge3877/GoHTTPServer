@@ -10,6 +10,10 @@ type RouterProvider interface {
 	GetRouter() *Router
 }
 
+type ConnCount interface {
+	WgCounter() int32
+}
+
 type Context struct {
 	Method      string
 	Path        string
@@ -18,6 +22,7 @@ type Context struct {
 	Query       map[string]string
 	Conn        any
 	RouterAware RouterProvider
+	ConnCount   ConnCount
 }
 
 // 表示一个路由规则

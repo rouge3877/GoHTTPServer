@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"encoding/json"
 	"net"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
@@ -183,4 +186,173 @@ func HandleLogs(ctx *router.Context) {
 	writer.WriteString("</pre></body></html>")
 
 	writer.Flush() // 确保flush
+}
+
+// 热更新路由
+func HandleUpdateRoute(ctx *router.Context) {
+	con := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(con)
+
+	query := ctx.Query
+	var (
+		body        string
+		contentType string
+	)
+
+	var handlerRegistry = map[string]router.HandlerFunc{}
+
+	handlerRegistry["HandleDebugRoutes"] = HandleDebugRoutes
+	handlerRegistry["HandleDebugRoutesJSON"] = HandleDebugRoutesJSON
+	handlerRegistry["HandleDebugRoutesSmart"] = HandleDebugRoutesSmart
+	// 优先根据 URL 参数判断
+	method := ""
+	if v, ok := query["method"]; ok {
+		method = strings.ToUpper(v)
+	}
+
+	parttern := ""
+	if v, ok := query["pattern"]; ok {
+		parttern = v
+	}
+	if method == "" || parttern == "" {
+		body = "method or pattern is empty"
+		contentType = "text/plain; charset=utf-8"
+		writer.WriteString("HTTP/1.1 400 Bad Request\r\n")
+		writer.WriteString("Content-Type: " + contentType + "\r\n")
+		writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+		writer.WriteString("\r\n")
+		writer.WriteString(body)
+		writer.Flush()
+		return
+	}
+
+	description := ""
+	if v, ok := query["description"]; ok {
+		description = v
+	}
+
+	var newHandler router.HandlerFunc
+	if v, ok := query["handler"]; ok {
+		newHandler = handlerRegistry[v]
+	}
+
+	ctx.RouterAware.GetRouter().Update(method, parttern, description, newHandler)
+	body = "路由更新成功"
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: " + contentType + "\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+	writer.WriteString("\r\n")
+	writer.WriteString(body)
+	writer.Flush()
+}
+
+// /debug/info 返回服务器运行配置
+func HandleDebugInfo(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+	var (
+		body        string
+		contentType string
+	)
+	// 获取服务器配置
+	info := map[string]interface{}{
+		"enable_tls": config.Cfg.Server.EnableTLS,
+		"ipv4":       config.Cfg.Server.IPv4,
+		"ipv6":       config.Cfg.Server.IPv6,
+		"http_port":  config.Cfg.Server.HTTPPort,
+		"https_port": config.Cfg.Server.HTTPSPort,
+		"workdir":    config.Cfg.Server.Workdir,
+		"is_dual":    config.Cfg.Server.IsDualStack,
+	}
+
+	bodyBytes, err := json.MarshalIndent(info, "", "  ")
+	if err != nil {
+		bodyBytes = []byte(`{"error": "failed to encode info"}`)
+	}
+	body = string(bodyBytes)
+	contentType = "application/json; charset=utf-8"
+	// 写HTTP响应头
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: " + contentType + "\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+	writer.WriteString("\r\n")
+	writer.WriteString(body)
+	writer.Flush()
+	talklog.Info(talklog.GID(), "Debug info requested: %s", body)
+}
+
+// /debug/uptime 返回服务器运行时间
+func HandleUptime(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+	var (
+		body        string
+		contentType string
+	)
+	// 获取服务器运行时间
+	uptime := time.Since(config.Cfg.StartTime)
+
+	result := map[string]string{
+		"uptime": uptime.String(),
+		"since":  config.Cfg.StartTime.Format(time.RFC3339),
+	}
+
+	bodyBytes, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		bodyBytes = []byte(`{"error": "failed to encode uptime"}`)
+	}
+	body = string(bodyBytes)
+	contentType = "application/json; charset=utf-8"
+	// 写HTTP响应头
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: " + contentType + "\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+	writer.WriteString("\r\n")
+	writer.WriteString(body)
+	writer.Flush()
+	// 记录日志
+
+	talklog.Info(0, "Uptime requested: %s", uptime)
+}
+
+func HandleConnCounts(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+
+	counts := ctx.ConnCount.WgCounter()
+
+	bodyBytes, err := json.MarshalIndent(counts, "", "  ")
+	if err != nil {
+		bodyBytes = []byte(`{"error": "failed to encode counts"}`)
+	}
+	body := string(bodyBytes)
+
+	// 写HTTP响应头
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: application/json; charset=utf-8\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+	writer.WriteString("\r\n")
+	writer.WriteString(body)
+	writer.Flush()
+}
+
+func HandleGortnCounts(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+
+	counts := runtime.NumGoroutine()
+
+	bodyBytes, err := json.MarshalIndent(counts, "", "  ")
+	if err != nil {
+		bodyBytes = []byte(`{"error": "failed to encode counts"}`)
+	}
+	body := string(bodyBytes)
+
+	// 写HTTP响应头
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: application/json; charset=utf-8\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
+	writer.WriteString("\r\n")
+	writer.WriteString(body)
+	writer.Flush()
 }

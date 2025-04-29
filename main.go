@@ -18,8 +18,10 @@ import (
 
 func main() {
 
-	var httpServer server.ServerInterface
-
+	var (
+		httpServer  server.ServerInterface
+		httpsServer server.ServerInterface
+	)
 	config.Cfg.StartTime = time.Now()
 	gid := talklog.GID()
 	// 初始化配置
@@ -83,46 +85,145 @@ func main() {
 	if len(args) > 0 {
 		p, err := strconv.Atoi(args[0])
 		if err == nil && p > 0 && p < 65536 {
-			config.Cfg.Server.Port = p
+			config.Cfg.Server.HTTPPort = p
 		}
 	}
-	talklog.Boot(gid, "监听端口: %d", config.Cfg.Server.Port)
 
+	talklog.Boot(gid, "HTTP监听端口: %d", config.Cfg.Server.HTTPPort)
+
+	if config.Cfg.Server.EnableTLS {
+
+		if len(args) > 1 {
+			p, err := strconv.Atoi(args[1])
+			if err == nil && p > 0 && p < 65536 {
+				config.Cfg.Server.HTTPSPort = p
+			}
+		}
+		talklog.Boot(gid, "HTTPS监听端口: %d", config.Cfg.Server.HTTPSPort)
+	}
 	// 启动服务器
 	if config.Cfg.Server.IsDualStack {
 
-		// 启动双栈服务器
-		srv, err := server.StartDualStackServer()
-		if err != nil {
-			talklog.Boot(gid, "启动双栈服务器失败: %v", err)
-			fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
-			os.Exit(1)
+		//  启动双栈服务器
+
+		// srv, err := server.StartDualStackServer()
+		// if err != nil {
+		// 	talklog.Boot(gid, "启动双栈服务器失败: %v", err)
+		// 	fmt.Fprintf(os.Stderr, "启动双栈服务器失败: %v\n", err)
+		// 	os.Exit(1)
+		// }
+		// httpServer = srv
+		if config.Cfg.Server.EnableTLS {
+			// 先创建HTTP服务器实例
+			config.Cfg.Server.EnableTLS = false
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
+			srv, err := server.StartDualStackServer()
+			if err != nil {
+				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpServer = srv
+			// 后创建HTTPS服务器实例
+			config.Cfg.Server.EnableTLS = true
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPSPort
+			srv, err = server.StartDualStackServer()
+			if err != nil {
+				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpsServer = srv
+		} else {
+			// 仅创建HTTP服务器实例
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
+			srv, err := server.StartDualStackServer()
+			if err != nil {
+				talklog.Boot(gid, "创建双栈服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建双栈服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpServer = srv
 		}
-		httpServer = srv
+
 	} else {
 
-		// 启动服务器
-		srv, err := server.StartServer()
-		if err != nil {
-			talklog.Boot(gid, "启动服务器失败: %v", err)
-			fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
-			os.Exit(1)
+		// // 启动IPV4服务器
+
+		// srv, err := server.StartServer()
+		// if err != nil {
+		// 	talklog.Boot(gid, "启动服务器失败: %v", err)
+		// 	fmt.Fprintf(os.Stderr, "启动服务器失败: %v\n", err)
+		// 	os.Exit(1)
+		// }
+		// httpServer = srv
+
+		if config.Cfg.Server.EnableTLS {
+			// 先创建HTTP服务器实例
+			config.Cfg.Server.EnableTLS = false
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
+			srv, err := server.StartServer()
+			if err != nil {
+				talklog.Boot(gid, "创建服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpServer = srv
+			// 后创建HTTPS服务器实例
+			config.Cfg.Server.EnableTLS = true
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPSPort
+			srv, err = server.StartServer()
+			if err != nil {
+				talklog.Boot(gid, "创建服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpsServer = srv
+		} else {
+			// 仅创建HTTP服务器实例
+			config.Cfg.Server.Port = config.Cfg.Server.HTTPPort
+			srv, err := server.StartServer()
+			if err != nil {
+				talklog.Boot(gid, "创建服务器实例失败: %v", err)
+				fmt.Fprintf(os.Stderr, "创建服务器实例失败: %v\n", err)
+				os.Exit(1)
+			}
+			httpServer = srv
 		}
-		httpServer = srv
+
 	}
 
 	//注册路由
 	app.RegisterAppRoutes(httpServer.GetRouter())
+	if config.Cfg.Server.EnableTLS {
+		app.RegisterAppRoutes(httpsServer.GetRouter())
+	}
 	//注册完成日志
 	talklog.Boot(gid, "路由注册完成")
+
+	//启动HTTP服务器
 	go func() {
 		err := core.Serve(httpServer)
 		if err != nil {
-			talklog.Boot(gid, "服务器启动失败: %v", err)
-			fmt.Fprintf(os.Stderr, "服务器启动失败: %v\n", err)
+			talklog.Boot(gid, "HTTP服务器启动失败: %v", err)
+			fmt.Fprintf(os.Stderr, "HTTP服务器启动失败: %v\n", err)
 			os.Exit(1)
 		}
 	}()
+
+	//启动HTTPS服务器
+	if config.Cfg.Server.EnableTLS {
+		go func() {
+			err := core.Serve(httpsServer)
+			if err != nil {
+				talklog.Boot(gid, "HTTPS服务器启动失败: %v", err)
+				fmt.Fprintf(os.Stderr, "HTTPS服务器启动失败: %v\n", err)
+				os.Exit(1)
+			}
+		}()
+	}
+
+	talklog.Boot(gid, "服务器启动完成")
 
 	// 等待服务器关闭
 	// 捕获系统信号 (Ctrl+C / kill)
@@ -135,9 +236,18 @@ func main() {
 
 	// 调用服务器关机
 	if err := httpServer.Shutdown(); err != nil {
-		talklog.Boot(gid, "服务器关机失败: %v", err)
+		talklog.Boot(gid, "HTTP服务器关机失败: %v", err)
 	} else {
-		talklog.Boot(gid, "服务器关机完成")
+		talklog.Boot(gid, "HTTP服务器关机完成")
 	}
+
+	if httpsServer != nil {
+		if err := httpsServer.Shutdown(); err != nil {
+			talklog.Boot(gid, "HTTPS服务器关机失败: %v", err)
+		} else {
+			talklog.Boot(gid, "HTTPS服务器关机完成")
+		}
+	}
+	talklog.Boot(gid, "服务器已关闭")
 
 }

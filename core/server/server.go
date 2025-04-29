@@ -2,12 +2,16 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"os"
 	"os/user"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/Singert/xjtu_cnlab/core/config"
@@ -33,6 +37,11 @@ type HTTPServer struct {
 	ShutdownCancel context.CancelFunc // 关闭取消函数
 	Wg             sync.WaitGroup     // 等待组，用于等待所有请求处理完成
 	Router         *router.Router     // 路由器，用于处理请求
+	ConnCount      atomic.Int32
+}
+
+func (s *HTTPServer) WgCounter() int32 {
+	return s.ConnCount.Load()
 }
 
 func (s *DualStackServer) GetRouter() *router.Router {
@@ -69,10 +78,42 @@ func NewHTTPServer(addr string) *HTTPServer {
 
 // ServerBind 绑定服务器地址并存储服务器名称
 func (s *ThreadingHTTPServer) ServerBind() error {
-	listener, err := net.Listen("tcp", s.Addr)
-	if err != nil {
-		return err
+	// listener, err := net.Listen("tcp", s.Addr)
+	// if err != nil {
+	// 	return err
+	// }
+	// s.Listener = listener
+
+	var (
+		listener net.Listener
+		err      error
+	)
+	network := "tcp"
+	if config.Cfg.Server.ForceIPV4 {
+		network = "tcp4"
+		talklog.Boot(talklog.GID(), "强制IPV4")
 	}
+	if config.Cfg.Server.EnableTLS {
+		cert, err := tls.LoadX509KeyPair(config.Cfg.Server.CertFile, config.Cfg.Server.KeyFile)
+		if err != nil {
+			talklog.Boot(talklog.GID(), "Error loading TLS certificate and key: %v", err)
+			return fmt.Errorf("error loading TLS certificate and key: %v", err)
+		}
+
+		tlsConfig := &tls.Config{Certificates: []tls.Certificate{cert}}
+		listener, err = tls.Listen(network, s.Addr, tlsConfig)
+		if err != nil {
+			talklog.Boot(talklog.GID(), "Error starting TLS listener: %v", err)
+			return fmt.Errorf("error starting TLS listener: %v", err)
+		}
+	} else {
+		listener, err = net.Listen(network, s.Addr)
+		if err != nil {
+			talklog.Boot(talklog.GID(), "Error starting listener: %v", err)
+			return fmt.Errorf("error starting tcp listener: %v", err)
+		}
+	}
+
 	s.Listener = listener
 
 	// 获取主机名和端口
@@ -95,38 +136,6 @@ func (s *ThreadingHTTPServer) ServerBind() error {
 
 	return nil
 }
-
-// Serve 开始服务
-// func (s *HTTPServer) Serve() error {
-// 	if s.Listener == nil {
-// 		if err := s.ServerBind(); err != nil {
-// 			return err
-// 		}
-// 	}
-
-// 	for {
-// 		conn, err := s.Listener.Accept()
-// 		if err != nil {
-// 			select {
-// 			case <-s.ShutdownCtx.Done():
-// 				return nil
-// 			default:
-// 				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
-// 				continue
-// 			}
-// 		}
-
-// 		s.Wg.Add(1)
-// 		go func(c net.Conn) {
-// 			defer s.Wg.Done()
-// 			defer c.Close()
-// 			// 创建请求处理器并处理请求
-// 			handler := handler.NewHTTPRequestHandler(s, c, config.Cfg.Server.IsCgi)
-// 			handler.Handle()
-
-// 		}(conn)
-// 	}
-// }
 
 // Shutdown 关闭服务器
 func (s *HTTPServer) Shutdown() error {
@@ -156,8 +165,13 @@ func NewThreadingHTTPServer(addr string) *ThreadingHTTPServer {
 func StartServer() (*ThreadingHTTPServer, error) {
 	addr := fmt.Sprintf("%s:%d", config.Cfg.Server.IPv4, config.Cfg.Server.Port)
 	server := NewThreadingHTTPServer(addr)
-
-	fmt.Printf("Serving HTTP on %s port %d (http://localhost:%d/) ...\n", config.Cfg.Server.IPv4, config.Cfg.Server.Port, config.Cfg.Server.Port)
+	serverType := ""
+	if config.Cfg.Server.EnableTLS {
+		serverType = "HTTPS"
+	} else {
+		serverType = "HTTP"
+	}
+	fmt.Printf("Serving %s on %s port %d (%s://localhost:%d/) ...\n", serverType, config.Cfg.Server.IPv4, config.Cfg.Server.Port, strings.ToLower(serverType), config.Cfg.Server.Port)
 	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return server, nil
@@ -167,9 +181,14 @@ func StartServer() (*ThreadingHTTPServer, error) {
 func StartDualStackServer() (*DualStackServer, error) {
 	addr := fmt.Sprintf("[%s]:%d", config.Cfg.Server.IPv6, config.Cfg.Server.Port)
 	server := NewDualStackServer(addr, config.Cfg.Server.Workdir)
-
-	fmt.Printf("Serving HTTP on [%s] port %d (http://localhost:%d/) at work directory :[%s]...\n",
-		config.Cfg.Server.IPv6, config.Cfg.Server.Port, config.Cfg.Server.Port, config.Cfg.Server.Workdir)
+	serverType := ""
+	if config.Cfg.Server.EnableTLS {
+		serverType = "HTTPS"
+	} else {
+		serverType = "HTTP"
+	}
+	fmt.Printf("Serving %s on [%s] port %d (%s://localhost:%d/) at work directory :[%s]...\n",
+		serverType, config.Cfg.Server.IPv6, config.Cfg.Server.Port, strings.ToLower(serverType), config.Cfg.Server.Port, config.Cfg.Server.Workdir)
 	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return server, nil
@@ -189,70 +208,61 @@ func NewDualStackServer(addr string, directory string) *DualStackServer {
 	}
 }
 
-// ServerBind 重写绑定方法以支持IPv4/IPv6双栈
+// 手动构造 socket，控制 socket 选项，再包裹 TLS
 func (s *DualStackServer) ServerBind() error {
-	config := &net.ListenConfig{}
+	var baseListener net.Listener
+	var err error
 
-	// 尝试设置IPV6_V6ONLY=0以支持双栈
-	listener, err := config.Listen(context.Background(), "tcp", s.Addr)
-	if err != nil {
-		return err
+	if config.Cfg.Server.EnableTLS {
+		// 先用 ListenConfig 创建底层 socket，确保关闭 IPV6_V6ONLY
+		lcfg := &net.ListenConfig{
+			Control: func(network, address string, c syscall.RawConn) error {
+				var innerErr error
+				if network == "tcp6" {
+					innerErr = c.Control(func(fd uintptr) {
+						innerErr = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
+					})
+				}
+				return innerErr
+			},
+		}
+
+		baseListener, err = lcfg.Listen(context.Background(), "tcp", s.Addr)
+		if err != nil {
+			return fmt.Errorf("failed to create dual-stack listener: %w", err)
+		}
+
+		// 加载证书
+		cert, err := tls.LoadX509KeyPair(config.Cfg.Server.CertFile, config.Cfg.Server.KeyFile)
+		if err != nil {
+			return fmt.Errorf("failed to load TLS certificate: %w", err)
+		}
+
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+
+		// 包装 TLS
+		s.Listener = tls.NewListener(baseListener, tlsConfig)
+	} else {
+		// 普通监听
+		lcfg := &net.ListenConfig{}
+		s.Listener, err = lcfg.Listen(context.Background(), "tcp", s.Addr)
+		if err != nil {
+			return fmt.Errorf("failed to start listener: %w", err)
+		}
 	}
-
-	s.Listener = listener
 
 	// 获取主机名和端口
-	_, port, err := net.SplitHostPort(listener.Addr().String())
+	_, port, err := net.SplitHostPort(s.Listener.Addr().String())
 	if err != nil {
 		return err
 	}
-
-	// 设置服务器名称
 	s.ServerName, _ = os.Hostname()
-
-	// 解析端口
-	s.ServerPort = 0
 	fmt.Sscanf(port, "%d", &s.ServerPort)
 
 	return nil
 }
-
-// / Serve 开始服务(双栈)
-// func (s *DualStackServer) Serve() error {
-// 	if s.Listener == nil {
-// 		if err := s.ServerBind(); err != nil {
-// 			return err
-// 		}
-// 	}
-// 	for {
-// 		conn, err := s.Listener.Accept()
-// 		if err != nil {
-// 			select {
-// 			case <-s.ShutdownCtx.Done():
-// 				return nil
-// 			default:
-// 				fmt.Fprintf(os.Stderr, "Error accepting connection: %v\n", err)
-// 				continue
-// 			}
-// 		}
-
-// 		s.Wg.Add(1)
-// 		go func(c net.Conn) {
-// 			defer s.Wg.Done()
-// 			defer c.Close()
-
-// 			// 创建请求处理器并处理请求
-// 			if config.Cfg.Server.IsCgi {
-// 				handler := NewCGIHTTPRequestHandler(s.HTTPServer, c)
-// 				handler.Handle()
-// 			} else {
-// 				handler := NewSimpleHTTPRequestHandler(s.HTTPServer, c)
-// 				handler.Handle()
-// 			}
-
-// 		}(conn)
-// 	}
-// }
 
 // Shutdown 关闭服务器(双栈)
 func (s *DualStackServer) Shutdown() error {
