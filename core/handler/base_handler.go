@@ -87,6 +87,18 @@ func (h *BaseHTTPRequestHandler) Handle() {
 
 // HandleOneRequest 处理单个HTTP请求
 func (h *BaseHTTPRequestHandler) HandleOneRequest() {
+	/*
+	 * 处理请求的主要逻辑
+	 * 1. 读取请求行
+	 * 2. 解析请求行
+	 * 3. 解析请求头
+	 * 4. 根据请求命令调用相应的处理方法
+	 * 5. 发送响应
+	 * 6. 刷新响应
+	 * 7. 处理异常
+	 * 8. 处理超时
+	 * 9. 处理连接关闭
+	 */
 	try := func() {
 		gid := talklog.GID()
 		talklog.SetPrefix(gid, "HTTP")
@@ -271,6 +283,13 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	}
 
 	h.Command, h.Path = command, path
+	h.RawURL = path
+
+	// 解析查询字符串
+	if idx := strings.Index(path, "?"); idx != -1 {
+		h.Path = path[:idx]
+		h.QueryRaw = path[idx+1:]
+	}
 
 	// 防止开放重定向攻击
 	if strings.HasPrefix(h.Path, "//") {

@@ -49,7 +49,7 @@ func (h *SimpleHTTPRequestHandler) DoGET() {
 			Headers:     h.Headers,
 			Conn:        h.Conn,
 			RouterAware: h.Server,
-			Query:       utils.ParseQuery(h.RawURL),
+			Query:       utils.ParseQuery(h.QueryRaw),
 		}
 		handlerFunc(ctx)
 		h.WFile.Flush()
