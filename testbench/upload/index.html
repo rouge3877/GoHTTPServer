@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>拖拽上传文件</title>
+    <style>
+        .drop-zone {
+            width: 300px;
+            height: 200px;
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            text-align: center;
+            line-height: 200px;
+            margin: 20px auto;
+            transition: all 0.3s;
+        }
+        .drop-zone.dragover {
+            border-color: #2196F3;
+            background-color: #e3f2fd;
+        }
+        #status {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="drop-zone" id="dropZone">将文件拖拽到此区域</div>
+    <div id="status"></div>
+
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const statusDiv = document.getElementById('status');
+
+        // 阻止默认行为
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // 高亮拖拽区域
+        function highlight() {
+            dropZone.classList.add('dragover');
+        }
+
+        // 取消高亮
+        function unhighlight() {
+            dropZone.classList.remove('dragover');
+        }
+
+        // 处理文件拖放
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0) {
+                uploadFile(files[0]);
+            }
+        }
+
+        // 上传文件
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // 动态获取当前URL（移除路径部分，保留origin）
+            const baseUrl = window.location.origin;
+            
+            statusDiv.textContent = '上传中...';
+            statusDiv.style.color = '#666';
+
+            try {
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP错误! 状态码: ${response.status}`);
+                }
+
+                const result = await response.text();
+                statusDiv.textContent = '上传成功！服务器响应：' + result;
+                statusDiv.style.color = '#4CAF50';
+            } catch (error) {
+                statusDiv.textContent = '上传失败: ' + error.message;
+                statusDiv.style.color = '#f44336';
+            }
+        }
+
+        // 事件监听
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight);
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults);
+        });
+
+        dropZone.addEventListener('drop', handleDrop);
+    </script>
+</body>
+</html>
