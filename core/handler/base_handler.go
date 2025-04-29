@@ -38,6 +38,8 @@ type BaseHTTPRequestHandler struct {
 	WFile                 *bufio.Writer     // 响应写入器
 	CloseConnection       bool              // 是否关闭连接
 	RequestLine           string            // 请求行
+	RawURL                string            //原始URL
+	QueryRaw              string            // 查询参数
 	ClientAddress         string            // 客户端地址
 	ServerVersion         string            // 服务器版本
 	SysVersion            string            // 系统版本

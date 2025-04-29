@@ -43,6 +43,10 @@ func (s *ThreadingHTTPServer) GetRouter() *router.Router {
 	return s.Router
 }
 
+func (s *HTTPServer) GetRouter() *router.Router {
+	return s.Router
+}
+
 func (s *HTTPServer) GetHTTPServer() *HTTPServer {
 	return s
 }

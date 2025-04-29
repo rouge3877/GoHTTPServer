@@ -83,5 +83,10 @@ Server在启动时默认注册系统基础路由（比如 /status, /healthz, /me
 
 /admin/remove_route 不用重启服务器，动态管理！
 
-要的话直接告诉我：“继续”。🚀
-要继续我就给你搭一套完整示范，超酷！✨ （而且完全适配你的低级网络服务器结构）
+----
+
+
+功能	说明
+/debug/metrics	返回服务器运行状态，比如连接数、goroutines数量、启动时间等
+/debug/pprof	集成简单版性能分析（像Go的pprof，查看CPU、内存占用）
+/admin/reload	远程热重载路由表或者配置

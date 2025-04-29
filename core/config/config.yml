@@ -6,8 +6,9 @@ server:
   IPv4: "0.0.0.0"
   IPv6: "::"
   IsDualStack: false
+  DeadLine: 10
 
 logger:
-  LogToFile: false
+  LogToFile: true
   FilePath: "./logs"
   WithTime: true

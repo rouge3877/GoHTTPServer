@@ -8,6 +8,29 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/router"
 )
 
+// RegisterAppRoutes 注册应用路由
+func RegisterAppRoutes(r *router.Router) {
+	r.RegisterRoute("GET", "/", "discription", HandleRoot)
+	r.RegisterRoute("GET", "/hello", "discription", HandleHello)
+	r.RegisterRoute("POST", "/upload", "discription", HandleUpload)
+
+	r.RegisterGroupRoute("/api", func(g *router.Group) {
+		g.RegisterRoute("POST", "/register", "discription", HandleRegister)
+		g.RegisterRoute("POST", "/login", "discription", HandleLogin)
+	})
+	r.RegisterGroupRoute("/admin", func(g *router.Group) {
+		g.RegisterRoute("GET", "/reload", "discription", HandleAdminReload)
+		g.RegisterRoute("GET", "/download-logs", "discription", HandleDownloadLogs)
+	})
+	r.RegisterGroupRoute("/debug", func(g *router.Group) {
+		g.RegisterRoute("GET", "/", "discription", HandleDebugRoutes)
+		g.RegisterRoute("GET", "/json", "discription", HandleDebugRoutesJSON)
+		g.RegisterRoute("GET", "/routes", "discription", HandleDebugRoutesSmart)
+		g.RegisterRoute("GET", "/logs", "discription", HandleLogs)
+	})
+
+}
+
 func HandleRoot(ctx *router.Context) {
 	conn := ctx.Conn.(net.Conn)
 	writer := bufio.NewWriter(conn)

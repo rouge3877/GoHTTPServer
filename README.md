@@ -66,8 +66,16 @@ func main() {
 - [ ] 优雅关闭空闲连接
 - [ ] 请求生命周期统一 ID 追踪（Request ID）
 - [x] prefix跟随协程 
-- [ ] 日志输出到网页
+- [x] 日志输出到网页
+- [ ] websocket推送日志
 - [x] 路由组
-- [ ] 热拔插
+- [x] 热拔插
+- [ ] 
  
 "核心模块是独立的、通用的，业务逻辑是外部可插拔的"
+# 测试
+- 智能协商返回格式：
+    curl -H "Accept: application/json" http://localhost:8000/debug/routes
+    curl -X GET
+- 关闭连接
+    curl -H "Connection: close" -X GET localhost:8000/cgi-bin/test-echo.py

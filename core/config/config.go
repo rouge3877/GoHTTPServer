@@ -20,6 +20,7 @@ type Config struct {
 		IPv4        string
 		IPv6        string
 		IsDualStack bool
+		DeadLine    time.Duration
 	}
 
 	Logger struct {
@@ -45,6 +46,23 @@ func InitConfig() {
 		fmt.Printf("Unable to decode into struct: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// ReloadConfig 重新加载配置文件
+func ReloadConfig() error {
+	viper.SetConfigName("config")
+	viper.SetConfigType("yml")
+	viper.AddConfigPath("./core/config")
+
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Printf("Error reading config file: %s\n", err)
+		return err
+	}
+	if err := viper.Unmarshal(&Cfg); err != nil {
+		fmt.Printf("Unable to decode into struct: %v\n", err)
+		return err
+	}
+	return nil
 }
 
 // GoVersion 返回Go版本

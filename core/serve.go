@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/handler"
@@ -35,6 +36,9 @@ func Serve(s server.ServerInterface) error {
 		go func(c net.Conn) {
 			defer s.GetHTTPServer().Wg.Done()
 			defer c.Close()
+
+			//设置超时
+			c.SetDeadline(time.Now().Add(config.Cfg.Server.DeadLine * time.Second))
 			// 创建请求处理器并处理请求
 			// handler := handler.NewHTTPRequestHandler(s, c, config.Cfg.Server.IsCgi)
 			// handler.Handle()

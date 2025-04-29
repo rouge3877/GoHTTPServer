@@ -12,7 +12,6 @@ import (
 	"github.com/Singert/xjtu_cnlab/app"
 	"github.com/Singert/xjtu_cnlab/core"
 	"github.com/Singert/xjtu_cnlab/core/config"
-	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
@@ -112,14 +111,10 @@ func main() {
 		httpServer = srv
 	}
 
-	//注册路由函数
-	httpServer.GetRouter().RegisterRoute("GET", "/", app.HandleRoot)
-	httpServer.GetRouter().RegisterRoute("GET", "/hello", app.HandleHello)
-
-	httpServer.GetRouter().RegisterGroupRoute("/api", func(g *router.Group) {
-		g.RegisterRoute("GET", "/register", app.HandleRegister)
-		g.RegisterRoute("GET", "/login", app.HandleLogin)
-	})
+	//注册路由
+	app.RegisterAppRoutes(httpServer.GetRouter())
+	//注册完成日志
+	talklog.Boot(gid, "路由注册完成")
 	go func() {
 		err := core.Serve(httpServer)
 		if err != nil {
@@ -138,7 +133,7 @@ func main() {
 	sig := <-quit
 	talklog.Boot(gid, "收到信号 %s，正在关机...", sig)
 
-	// 调用服务器优雅关机
+	// 调用服务器关机
 	if err := httpServer.Shutdown(); err != nil {
 		talklog.Boot(gid, "服务器关机失败: %v", err)
 	} else {

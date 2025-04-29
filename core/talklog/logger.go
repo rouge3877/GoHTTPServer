@@ -3,6 +3,7 @@ package talklog
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -13,8 +14,20 @@ var (
 	logConfig  LogConfig
 	fileHandle *os.File
 	logLock    sync.Mutex
+)
+var (
 	prefixLock sync.RWMutex
 	logPrefix  map[uint64]string = make(map[uint64]string)
+)
+
+// 匹配 ANSI 转义序列
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// 放在文件开头的全局变量区域
+var (
+	logBuffer     []string     // 环形缓存日志
+	maxBufferSize = 1000       // 最多缓存1000条日志
+	bufferLock    sync.RWMutex // 缓存锁
 )
 
 func InitLogConfig(lgcfg *LogConfig) {
@@ -84,23 +97,35 @@ func logLine(color, level string, gid uint64, format string, a ...any) {
 	//console log
 	fmt.Println(line)
 
+	// memory buffer
+	bufferLock.Lock()
+	logBuffer = append(logBuffer, stripANSi(line))
+	if len(logBuffer) > maxBufferSize {
+		logBuffer = logBuffer[len(logBuffer)-maxBufferSize:]
+	}
+	bufferLock.Unlock()
+
 	//file
 	if logConfig.LogToFile && fileHandle != nil {
 		fileHandle.WriteString(stripANSi(line) + "\n")
 	}
 }
 
+// func stripANSi(s string) string {
+// 	return strings.ReplaceAll(
+// 		strings.ReplaceAll(
+// 			strings.ReplaceAll(
+// 				strings.ReplaceAll(s, ColorReset, ""),
+// 				ColorRed, ""),
+// 			ColorGreen, ""),
+// 		ColorYellow, "")
+
+// }
+
+// stripANSi removes ANSI color escape codes from a string.
 func stripANSi(s string) string {
-	return strings.ReplaceAll(
-		strings.ReplaceAll(
-			strings.ReplaceAll(
-				strings.ReplaceAll(s, ColorReset, ""),
-				ColorRed, ""),
-			ColorGreen, ""),
-		ColorYellow, "")
-
+	return ansiEscape.ReplaceAllString(s, "")
 }
-
 func Boot(gid uint64, format string, a ...any) {
 	logLine(ColorCyan, "BOOT", gid, format, a...)
 }
@@ -133,4 +158,15 @@ func Hdr(gid uint64, key, value string) {
 
 func Resp(gid uint64, status int, contentLength int, durationMs float64) {
 	logLine(ColorCyan, "RESP", gid, "%d OK (Content-Length: %d) - served in %.8fms", status, contentLength, durationMs)
+}
+
+// GetRecentLogs 返回最近的缓存日志（不含颜色）
+func GetRecentLogs() []string {
+	bufferLock.RLock()
+	defer bufferLock.RUnlock()
+
+	// 返回副本以避免外部修改原始内容
+	copied := make([]string, len(logBuffer))
+	copy(copied, logBuffer)
+	return copied
 }

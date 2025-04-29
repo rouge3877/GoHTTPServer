@@ -17,6 +17,7 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/router"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/utils"
 )
 
 // SimpleHTTPRequestHandler 实现简单的HTTP请求处理器
@@ -40,13 +41,15 @@ func NewSimpleHTTPRequestHandler(server *server.HTTPServer, conn net.Conn) *Simp
 func (h *SimpleHTTPRequestHandler) DoGET() {
 	gid := talklog.GID()
 	talklog.Info(gid, "Processing GET request for %s", h.Path)
-
+	talklog.Info(gid, "Finding route for %s", h.Path)
 	if handlerFunc, found := h.Server.Router.MatchRoute(h.Command, h.Path); found {
 		ctx := &router.Context{
-			Method:  "GET",
-			Path:    h.Path,
-			Headers: h.Headers,
-			Conn:    h.Conn,
+			Method:      "GET",
+			Path:        h.Path,
+			Headers:     h.Headers,
+			Conn:        h.Conn,
+			RouterAware: h.Server,
+			Query:       utils.ParseQuery(h.RawURL),
 		}
 		handlerFunc(ctx)
 		h.WFile.Flush()
