@@ -20,6 +20,7 @@ type Config struct {
 		IPv4        string
 		IPv6        string
 		IsDualStack bool
+		IsGzip      bool
 		DeadLine    time.Duration
 	}
 

@@ -49,6 +49,7 @@ type BaseHTTPRequestHandler struct {
 	DefaultRequestVersion string            // 默认请求版本
 	HeadersBuffer         [][]byte          // 响应头缓冲区
 	ProcessMethod         ProcessMethod     // 处理方法接口
+	IsGzip             	  bool              // 是否启用gzip
 
 	Server *server.HTTPServer // 服务器实例
 }
@@ -326,6 +327,20 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 		h.CloseConnection = true
 	} else if strings.ToLower(connType) == "keep-alive" && h.ProtocolVersion >= "HTTP/1.1" {
 		h.CloseConnection = false
+	}
+
+	// gzip逻辑：
+	// 检查客户端是否支持 Gzip:
+	// 	- 解析 Accept-Encoding 请求头。
+	// 	- 检查是否包含 gzip。
+	// 如果支持，则设置 h.IsGzip 为 true。
+	// 否则，设置为 false。
+
+	acceptEncoding := h.Headers["Accept-Encoding"]
+	if strings.Contains(acceptEncoding, "gzip") {
+		h.IsGzip = true
+	} else {
+		h.IsGzip = false
 	}
 
 	// 处理Expect头

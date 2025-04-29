@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"compress/gzip"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -146,11 +147,11 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	path := h.TranslatePath(h.Path)
 	var f *os.File
 	var err error
-	var needClose bool = true // 标记是否需要关闭文件
+	var returnedFile *os.File // Track the file actually returned
 
-	// 确保在错误时关闭已打开的文件
 	defer func() {
-		if needClose && f != nil {
+		// If f was opened but not the file ultimately returned (e.g., replaced by tmpF or error occurred), close it.
+		if f != nil && f != returnedFile {
 			f.Close()
 		}
 	}()
@@ -166,7 +167,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		return nil, err
 	}
 
-	// 第二阶段：目录处理
+	// 第二阶段：判断是否是一个对于一个文件夹的请求
 	if stat.IsDir() {
 		// 检查是否需要添加尾部斜杠
 		if !strings.HasSuffix(h.Path, "/") {
@@ -188,7 +189,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 
 		// 查找索引文件
 		foundIndex := false
-		for _, index := range []string{"index.html", "index.htm"} {
+		for _, index := range []string{"index.html", "index.htm", "index"} {
 			indexPath := filepath.Join(path, index)
 			if fs, err := os.Stat(indexPath); err == nil && !fs.IsDir() {
 				path = indexPath
@@ -199,17 +200,40 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 
 		if !foundIndex {
 			// 列目录处理
-			return h.ListDirectory(path)
-		}
-
-		// 重新获取文件状态（因为path可能指向index文件）
-		if stat, err = os.Stat(path); err != nil {
-			h.SendError(NOT_FOUND, "File not found")
-			return nil, err
+			// Make sure ListDirectory returns nil error if it sends response itself
+			tmpFile, listErr := h.ListDirectory(path) // ListDirectory now returns the temp file or error
+			if listErr != nil {
+				// Error already sent by ListDirectory
+				return nil, listErr
+			}
+			if tmpFile != nil {
+				// ListDirectory generated content and sent headers
+				returnedFile = tmpFile // Mark tmpFile as returned
+				return tmpFile, nil    // Return the temp file with HTML listing
+			}
+			// If ListDirectory didn't return a file, it means it found an index file.
+			// Need to re-stat the index file path.
+			// Find index file again (logic duplicated from original ListDirectory check)
+			foundIndex = false
+			for _, index := range []string{"index.html", "index.htm", "index"} {
+				indexPath := filepath.Join(path, index)
+				if fs, err := os.Stat(indexPath); err == nil && !fs.IsDir() {
+					path = indexPath // Update path to the index file
+					stat = fs        // Update stat to the index file
+					foundIndex = true
+					break
+				}
+			}
+			if !foundIndex {
+				// Should have been handled by ListDirectory returning a file
+				h.SendError(INTERNAL_SERVER_ERROR, "Index file logic error")
+				return nil, os.ErrNotExist // Or a more specific error
+			}
+			// Proceed to handle the found index file
 		}
 	}
 
-	// 第三阶段：路径验证
+	// 第三阶段：路径验证 (Check again after potential index file resolution)
 	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, string(filepath.Separator)) {
 		h.SendError(NOT_FOUND, "File not found")
 		return nil, os.ErrNotExist
@@ -223,7 +247,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 			if !modTime.After(t) {
 				h.SendResponse(NOT_MODIFIED, "")
 				h.EndHeaders()
-				return nil, nil
+				return nil, nil // Return nil, nil for NOT_MODIFIED
 			}
 		}
 	}
@@ -235,15 +259,79 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		return nil, err
 	}
 
-	// 第六阶段：发送头信息
+	// 第六阶段: 尝试 Gzip 压缩 (如果适用)
+	h.IsGzip = config.Cfg.Server.IsGzip && h.IsGzip
+
+	if h.IsGzip {
+		tmpF, err := os.CreateTemp("", "gzip*")
+		if err == nil {
+			// Setup deferred cleanup for the temp file
+			cleanupTemp := true // Flag to control cleanup
+			defer func() {
+				if cleanupTemp {
+					tmpF.Close()
+					os.Remove(tmpF.Name())
+				}
+			}()
+
+			gw := gzip.NewWriter(tmpF)
+			// Use TeeReader to write to gzip writer while allowing original file to be read later if needed? No, copy directly.
+			_, copyErr := io.Copy(gw, f) // Copy from original file 'f'
+			closeErr := gw.Close()       // Close the gzip writer *before* seeking/stating
+
+			if copyErr == nil && closeErr == nil {
+				// Seek to start for reading
+				if _, seekErr := tmpF.Seek(0, io.SeekStart); seekErr == nil {
+					// Get stat of the compressed file
+					if tmpStat, statErr := tmpF.Stat(); statErr == nil {
+						// Compression successful! Send headers for compressed file.
+						h.SendResponse(OK, "")
+						h.SendHeader("Content-Encoding", "gzip")
+						h.SendHeader("Content-Type", h.GuessType(path))                          // Use original path for type
+						h.SendHeader("Content-Length", strconv.FormatInt(tmpStat.Size(), 10))    // Compressed size
+						h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123)) // Original mod time
+						h.EndHeaders()
+
+						// We are returning tmpF. Prevent its deferred cleanup.
+						cleanupTemp = false
+						// The original file 'f' is no longer needed by this function or its caller. Close it now.
+						f.Close()
+						f = nil             // Ensure the main defer doesn't try to close it again
+						returnedFile = tmpF // Mark tmpF as the returned file
+						return tmpF, nil    // Return the compressed temp file
+					} else {
+						talklog.Error(talklog.GID(), "Error stating compressed temp file: %v", statErr)
+					}
+				} else {
+					talklog.Error(talklog.GID(), "Error seeking compressed temp file: %v", seekErr)
+				}
+			} else {
+				talklog.Error(talklog.GID(), "Error during gzip compression: copyErr=%v, closeErr=%v", copyErr, closeErr)
+				// Need to rewind original file 'f' as copy might have consumed it
+				if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
+					talklog.Error(talklog.GID(), "Error rewinding original file after failed compression: %v", seekErr)
+					h.SendError(INTERNAL_SERVER_ERROR, "Failed to process file")
+					// The main defer will close f
+					return nil, seekErr
+				}
+			}
+			// If we reach here, compression failed. Fall through to send original file.
+			// The deferred tmpF cleanup will execute.
+		} else {
+			talklog.Error(talklog.GID(), "Error creating temp file for gzip: %v", err)
+			// Fall through to send original file.
+		}
+	}
+
+	// 第七阶段：发送未压缩文件的头信息 (if gzip not applicable or failed)
 	h.SendResponse(OK, "")
 	h.SendHeader("Content-Type", h.GuessType(path))
-	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10))
+	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10)) // Original size
 	h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123))
 	h.EndHeaders()
 
-	needClose = false // 调用者需要负责关闭文件
-	return f, nil
+	returnedFile = f // Mark f as the returned file
+	return f, nil    // Return the original file
 }
 
 // TranslatePath 将URL路径转换为文件系统路径
@@ -289,24 +377,37 @@ func (h *SimpleHTTPRequestHandler) GuessType(path string) string {
 }
 
 // ListDirectory 列出目录内容
+// Returns the temporary file containing the HTML listing, or nil if an index file was found/handled.
+// Sends error responses internally.
 func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		h.SendError(NOT_FOUND, "File not found")
-		return nil, err
+	// Check for index files first (moved from SendHead)
+	for _, index := range []string{"index.html", "index.htm", "index"} {
+		indexPath := filepath.Join(path, index)
+		if fs, err := os.Stat(indexPath); err == nil && !fs.IsDir() {
+			// Found an index file, let SendHead handle it.
+			// Indicate success but no file to return from here.
+			return nil, nil
+		}
 	}
 
-	files, err := f.Readdir(-1)
-	f.Close()
+	// No index file found, proceed with listing
+	d, err := os.Open(path)
+	if err != nil {
+		h.SendError(INTERNAL_SERVER_ERROR, "Cannot open directory for listing")
+		return nil, err
+	}
+	defer d.Close()
+
+	files, err := d.Readdir(-1)
 	if err != nil {
 		h.SendError(INTERNAL_SERVER_ERROR, "Error reading directory")
 		return nil, err
 	}
 
-	// 排序文件列表
+	// Sort file list
 	sort.Slice(files, func(i, j int) bool { return files[i].Name() < files[j].Name() })
 
-	// 构建HTML页面
+	// Build HTML page
 	displayPath := h.Path
 	if !strings.HasSuffix(displayPath, "/") {
 		displayPath += "/"
@@ -344,21 +445,33 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 	html += "</body>\n"
 	html += "</html>\n"
 
-	// 发送响应
-	h.SendResponse(OK, "")
-	h.SendHeader("Content-Type", "text/html; charset=utf-8")
-	h.SendHeader("Content-Length", strconv.Itoa(len(html)))
-	h.EndHeaders()
-
-	// 创建临时文件并写入HTML内容
-	tmpFile, err := os.CreateTemp("", "dirlist")
+	// Create temporary file and write HTML content
+	tmpFile, err := os.CreateTemp("", "dirlist*.html")
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Error creating temporary file")
+		h.SendError(INTERNAL_SERVER_ERROR, "Error creating temporary file for listing")
 		return nil, err
 	}
 
-	tmpFile.WriteString(html)
-	tmpFile.Seek(0, 0)
+	if _, err := tmpFile.WriteString(html); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		h.SendError(INTERNAL_SERVER_ERROR, "Error writing directory listing")
+		return nil, err
+	}
+	if _, err := tmpFile.Seek(0, 0); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpFile.Name())
+		h.SendError(INTERNAL_SERVER_ERROR, "Error seeking in directory listing file")
+		return nil, err
+	}
 
+	// Send response headers *before* returning the file
+	h.SendResponse(OK, "")
+	h.SendHeader("Content-Type", "text/html; charset=utf-8")
+	h.SendHeader("Content-Length", strconv.Itoa(len(html)))
+	// Add Last-Modified? Maybe based on directory mod time? For now, omit.
+	h.EndHeaders()
+
+	// Return the temporary file; caller (SendHead/DoGET) is responsible for closing it.
 	return tmpFile, nil
 }
