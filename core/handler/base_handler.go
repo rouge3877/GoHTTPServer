@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/textproto"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -287,10 +288,13 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	h.RawURL = path
 
 	// 解析查询字符串
-	if idx := strings.Index(path, "?"); idx != -1 {
-		h.Path = path[:idx]
-		h.QueryRaw = path[idx+1:]
+	u, err := url.ParseRequestURI(h.RawURL)
+	if err != nil {
+		h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request URI (%s)", h.RawURL))
+		return false
 	}
+	h.Path = u.Path
+	h.QueryRaw = u.RawQuery
 
 	// 防止开放重定向攻击
 	if strings.HasPrefix(h.Path, "//") {
