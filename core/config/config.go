@@ -21,6 +21,7 @@ type Config struct {
 		IPv6        string
 		IsDualStack bool
 		IsGzip      bool
+		CGIDirectories []string
 		DeadLine    time.Duration
 	}
 

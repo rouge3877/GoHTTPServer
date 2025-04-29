@@ -8,6 +8,9 @@ server:
   IsDualStack: false
   DeadLine: 10
   IsGzip: true
+  CGIDirectories:
+    - "cgi-bin"
+    - "bin"
 
 logger:
   LogToFile: true
