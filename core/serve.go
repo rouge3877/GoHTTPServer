@@ -34,8 +34,8 @@ func Serve(s server.ServerInterface) error {
 
 		s.GetHTTPServer().Wg.Add(1)
 		go func(c net.Conn) {
-			s.GetHTTPServer().ConnCount.Add(1)
-			defer s.GetHTTPServer().ConnCount.Add(-1)
+			config.IncConn()
+			defer config.DecConn()
 			defer s.GetHTTPServer().Wg.Done()
 			defer c.Close()
 

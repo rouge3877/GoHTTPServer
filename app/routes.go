@@ -23,16 +23,13 @@ func RegisterAppRoutes(r *router.Router) {
 		g.RegisterRoute("GET", "/download-logs", "discription", HandleDownloadLogs)
 
 	})
+	r.RegisterRoute("GET", "logs", "discription", HandleLogs)
 	r.RegisterGroupRoute("/debug", func(g *router.Group) {
 		g.RegisterRoute("GET", "/", "discription", HandleDebugRoutes)
 		g.RegisterRoute("GET", "/json", "discription", HandleDebugRoutesJSON)
 		g.RegisterRoute("GET", "/routes", "discription", HandleDebugRoutesSmart)
-		g.RegisterRoute("GET", "/logs", "discription", HandleLogs)
 		g.RegisterRoute("GET", "/update-route", "discription", HandleUpdateRoute)
-		g.RegisterRoute("GET", "/info", "服务器配置信息", HandleDebugInfo)
-		g.RegisterRoute("GET", "/uptime", "服务器运行时间", HandleUptime)
-		g.RegisterRoute("GET", "/conncounts", "连接数", HandleConnCounts)
-		g.RegisterRoute("GET", "/goroutines", "协程信息", HandleGortnCounts)
+		g.RegisterRoute("GET", "/dashboard", "discription", HandleDebugDashboard)
 	})
 
 }

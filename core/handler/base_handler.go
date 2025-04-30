@@ -50,10 +50,12 @@ type BaseHTTPRequestHandler struct {
 	DefaultRequestVersion string            // 默认请求版本
 	HeadersBuffer         [][]byte          // 响应头缓冲区
 	ProcessMethod         ProcessMethod     // 处理方法接口
-	IsGzip             	  bool              // 是否启用gzip
+	IsGzip                bool              // 是否启用gzip
 
 	Server *server.HTTPServer // 服务器实例
 }
+
+// 替代 h.WFile.Write() 并统计写入的字节数
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
 func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
@@ -61,6 +63,8 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
 		clientAddr = addr.IP.String()
 	}
+	talklog.Info(talklog.GID(), "新连接已建立，客户端地址：%s", clientAddr)
+
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
 		RFile:                 bufio.NewReader(conn),
@@ -159,7 +163,8 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		// 刷新响应
 		h.WFile.Flush()
 
-		talklog.Info(gid, "Request processed successfully: %s %s", h.RequestLine, h.Path)
+		talklog.Info(talklog.GID(), "请求解析完成：%s %s %s", h.Command, h.Path, h.RequestVersion)
+
 	}
 
 	// 捕获超时错误
@@ -343,8 +348,15 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	acceptEncoding := h.Headers["Accept-Encoding"]
 	if strings.Contains(acceptEncoding, "gzip") {
 		h.IsGzip = true
+		talklog.Info(talklog.GID(), "客户端支持 gzip 压缩，已启用")
+
 	} else {
 		h.IsGzip = false
+		if h.IsGzip {
+			talklog.Info(talklog.GID(), "客户端支持 gzip 压缩，已启用")
+		} else {
+			talklog.Info(talklog.GID(), "客户端不支持 gzip 压缩")
+		}
 	}
 
 	// 处理Expect头
@@ -370,7 +382,7 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 	var shortMsg, longMsg string
 
 	// 获取状态码对应的消息
-	if msgs, ok := statusMessages[code]; ok {
+	if msgs, ok := StatusMessages[code]; ok {
 		shortMsg, longMsg = msgs[0], msgs[1]
 	} else {
 		shortMsg, longMsg = "???", "???"
@@ -381,11 +393,11 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 		message = shortMsg
 	}
 
-	// 记录错误
-	h.LogError("code %d, message %s", code, message)
+	talklog.Error(talklog.GID(), "错误响应: code %d, message %s", code, message)
 
 	// 发送响应
 	h.SendResponse(code, message)
+
 	h.SendHeader("Connection", "close")
 
 	// 某些状态码不需要消息体
@@ -417,27 +429,20 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 	}
 }
 
-// LogError 记录错误
+// LogError 记录错误 FIXME:弃用
 func (h *BaseHTTPRequestHandler) LogError(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
 // SendResponse 发送响应
 func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
-	contentLength := 0
-	if h.HeadersBuffer != nil {
-		contentLength = len(h.HeadersBuffer)
-	}
-	startTime := time.Now()
 
 	h.LogRequest(code, 0)
 	h.SendResponseOnly(code, message)
 	h.SendHeader("Server", h.VersionString())
 	h.SendHeader("Date", h.DateTimeString())
 
-	duration := time.Since(startTime).Milliseconds()
-
-	talklog.Resp(talklog.GID(), int(code), contentLength, float64(duration))
+	talklog.Resp(talklog.GID(), int(code))
 
 }
 
@@ -445,7 +450,7 @@ func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
 func (h *BaseHTTPRequestHandler) SendResponseOnly(code HTTPStatus, message string) {
 	if h.RequestVersion != "HTTP/0.9" {
 		if message == "" {
-			if msgs, ok := statusMessages[code]; ok {
+			if msgs, ok := StatusMessages[code]; ok {
 				message = msgs[0]
 			} else {
 				message = ""
@@ -459,6 +464,8 @@ func (h *BaseHTTPRequestHandler) SendResponseOnly(code HTTPStatus, message strin
 		h.HeadersBuffer = append(h.HeadersBuffer, []byte(fmt.Sprintf("%s %d %s\r\n",
 			h.ProtocolVersion, code, message)))
 	}
+	talklog.Info(talklog.GID(), "发送响应状态行：%s %d %s", h.ProtocolVersion, code, message)
+
 }
 
 // SendHeader 发送HTTP头
@@ -491,6 +498,7 @@ func (h *BaseHTTPRequestHandler) EndHeaders() {
 
 // FlushHeaders 刷新HTTP头
 func (h *BaseHTTPRequestHandler) FlushHeaders() {
+	talklog.Info(talklog.GID(), "已发送 %d 个响应头", len(h.HeadersBuffer))
 	if h.HeadersBuffer != nil {
 		for _, header := range h.HeadersBuffer {
 			h.WFile.Write(header)

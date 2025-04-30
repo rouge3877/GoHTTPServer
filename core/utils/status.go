@@ -1,4 +1,4 @@
-package handler
+package utils
 
 // HTTPStatus 定义HTTP状态码常量
 type HTTPStatus int
