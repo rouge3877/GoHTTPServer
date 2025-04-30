@@ -160,26 +160,20 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	// 第一阶段：路径检查
 	stat, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			h.SendError(NOT_FOUND, "File not found")
-		} else {
-			h.SendError(INTERNAL_SERVER_ERROR, "File error")
-		}
+		h.SendError(NOT_FOUND, "File not found")
 		return nil, err
 	}
 
 	// 第二阶段：判断是否是一个对于一个文件夹的请求
 	if stat.IsDir() {
 		// 检查是否需要添加尾部斜杠
+		// 检查是否需要添加尾部斜杠
 		if !strings.HasSuffix(h.Path, "/") {
-			// 重构完整URL（保留查询参数）
-			rawURL := h.RequestLine
-			if idx := strings.Index(rawURL, " "); idx != -1 {
-				rawURL = rawURL[:idx]
+			// 构造重定向 URL（保留查询参数）
+			newURL := h.Path + "/"
+			if h.QueryRaw != "" {
+				newURL += "?" + h.QueryRaw
 			}
-			parsedURL, _ := url.Parse(rawURL)
-			parsedURL.Path += "/"
-			newURL := parsedURL.String()
 
 			h.SendResponse(MOVED_PERMANENTLY, "")
 			h.SendHeader("Location", newURL)
