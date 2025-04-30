@@ -468,7 +468,7 @@ func HandleDebugDashboard(ctx *router.Context) {
 	</head><body>
 	<h1>🛠️ 服务器调试 Dashboard</h1>
 	<div style="margin-bottom:10px;">
-		<button onclick="location.href='/admin/download_logs'">⬇️ 下载日志</button>
+		<button onclick="location.href='/debug/download-logs'">⬇️ 下载日志</button>
 		<button onclick="location.href='/debug/routes?content-type=json'">⬇️ 下载路由表</button>
 	</div>
 	`)
