@@ -150,7 +150,7 @@ func Hdr(gid uint64, key, value string) {
 }
 
 func Resp(gid uint64, status int) {
-	logLine(ColorCyan, "RESP", gid, "%d ", status, utils.StatusMessages[utils.HTTPStatus(status)])
+	logLine(ColorCyan, "RESP", gid, "%d %s", status, utils.StatusMessages[utils.HTTPStatus(status)])
 }
 
 // GetRecentLogs 返回最近的缓存日志（不含颜色）
