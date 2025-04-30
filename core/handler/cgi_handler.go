@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	_ "net/url"
 	"os"
@@ -9,6 +11,7 @@ import (
 	_ "path"
 	"path/filepath"
 	_ "slices"
+	"strconv"
 	"strings"
 
 	"github.com/Singert/xjtu_cnlab/core/config"
@@ -125,35 +128,158 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	// 准备CGI环境变量
 	env := h.prepareCGIEnvironment(pathInfo)
 
+	// 添加 Content-Length 和 Content-Type 环境变量 (重要 for POST)
+	if contentLength, ok := h.Headers["Content-Length"]; ok {
+		env = append(env, fmt.Sprintf("CONTENT_LENGTH=%s", contentLength))
+	}
+	if contentType, ok := h.Headers["Content-Type"]; ok {
+		env = append(env, fmt.Sprintf("CONTENT_TYPE=%s", contentType))
+	}
+
 	// 执行CGI脚本
 	talklog.Info(gid, "Executing CGI script: %s", scriptFile)
 	cmd := exec.Command(scriptFile)
 	cmd.Env = env
 
+	// --- Start: Handle POST data ---
+	var postData bytes.Buffer // Buffer to hold POST data if any
+	if h.Command == "POST" {
+		contentLengthStr := h.Headers["Content-Length"]
+		if contentLengthStr != "" {
+			contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64)
+			if err != nil {
+				talklog.Error(gid, "Invalid Content-Length: %v", err)
+				h.SendError(BAD_REQUEST, "Invalid Content-Length header")
+				return
+			}
+			if contentLength > 0 {
+				// Read the POST data from the request body (h.RFile)
+				// Use io.LimitReader to avoid reading more than specified
+				lr := io.LimitReader(h.RFile, contentLength)
+				bytesRead, err := io.Copy(&postData, lr)
+				if err != nil && err != io.EOF {
+					talklog.Error(gid, "Error reading POST data: %v", err)
+					h.SendError(INTERNAL_SERVER_ERROR, "Failed to read request body")
+					return
+				}
+				if bytesRead != contentLength {
+					talklog.Warn(gid, "POST data read (%d) differs from Content-Length (%d)", bytesRead, contentLength)
+					// Decide how to handle this: error or proceed? For now, proceed.
+				}
+				talklog.Info(gid, "Read %d bytes of POST data", bytesRead)
+				// Set the command's standard input to the buffered POST data
+				cmd.Stdin = &postData
+			}
+		} else {
+			// Handle POST requests with no Content-Length (e.g., chunked - less common for CGI)
+			// For simplicity, we might disallow this or read until EOF, which could be risky.
+			// Currently, we'll assume Content-Length is present for CGI POST.
+			talklog.Warn(gid, "POST request received without Content-Length")
+		}
+	}
+	// --- End ---
+
 	// 修改: 不直接写入到连接，而是捕获输出
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.CombinedOutput() // CombinedOutput reads stdout and stderr
 	if err != nil {
-		talklog.Error(gid, "CGI execution failed: %v", err)
+		// Check if the error contains the output (useful for script errors printed to stderr)
+		errMsg := fmt.Sprintf("CGI script execution failed: %v", err)
+		if len(output) > 0 {
+			errMsg += fmt.Sprintf("\nScript output:\n%s", string(output))
+		}
+		talklog.Error(gid, errMsg)
 		h.SendError(INTERNAL_SERVER_ERROR, fmt.Sprintf("CGI script execution failed: %v", err))
 		return
 	}
 
 	// 处理CGI脚本输出
-	// 检查输出是否包含HTTP头
+	// Find the end of headers (first blank line)
+	headerEnd := bytes.Index(output, []byte("\r\n\r\n"))
+	if headerEnd == -1 {
+		headerEnd = bytes.Index(output, []byte("\n\n")) // Also check for Unix line endings
+	}
+
+	var headers []byte
+	var body []byte
+
+	if headerEnd != -1 {
+		headers = output[:headerEnd]
+		// Skip the blank line separator (\r\n\r\n or \n\n)
+		bodyStartIndex := headerEnd + 4
+		if bytes.Equal(output[headerEnd:headerEnd+2], []byte("\n\n")) {
+			bodyStartIndex = headerEnd + 2
+		}
+		if bodyStartIndex < len(output) {
+			body = output[bodyStartIndex:]
+		} else {
+			body = []byte{}
+		}
+	} else {
+		// Assume entire output is the body, send default headers
+		headers = []byte{}
+		body = output
+	}
+
+	// Send default OK response first (can be overridden by CGI headers)
 	h.SendResponse(OK, "")
-	h.SendHeader("Content-Type", "text/plain; charset=utf-8")
-	h.SendHeader("Transfer-Encoding", "chunked")
-	h.EndHeaders()
-	
-	// 将 output 包装为分块格式
-	chunkHeader := fmt.Sprintf("%x\r\n", len(output))
-	h.WFile.Write([]byte(chunkHeader))
-	h.WFile.Write(output)
-	h.WFile.Write([]byte("\r\n"))
-	
-	// 结束块
-	h.WFile.Write([]byte("0\r\n\r\n"))
+	contentTypeSent := false
+
+	// Parse and send CGI headers
+	headerLines := bytes.Split(headers, []byte("\n"))
+	for _, lineBytes := range headerLines {
+		line := strings.TrimSpace(string(lineBytes))
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+			// Handle specific headers like Status and Content-Type
+			if strings.EqualFold(key, "Status") {
+				// Example: Status: 404 Not Found
+				statusParts := strings.SplitN(value, " ", 2)
+				if len(statusParts) >= 1 {
+					statusCode, err := strconv.Atoi(statusParts[0])
+					if err == nil {
+						statusMsg := ""
+						if len(statusParts) > 1 {
+							statusMsg = statusParts[1]
+						}
+						// Override the initial OK response
+						h.SendResponseOnly(HTTPStatus(statusCode), statusMsg)
+						talklog.Info(gid, "CGI Status header: %s", value)
+					} else {
+						talklog.Warn(gid, "Invalid CGI Status header: %s", value)
+					}
+				}
+			} else {
+				h.SendHeader(key, value)
+				if strings.EqualFold(key, "Content-Type") {
+					contentTypeSent = true
+				}
+				talklog.Info(gid, "CGI header: %s: %s", key, value)
+			}
+		} else {
+			talklog.Warn(gid, "Malformed CGI header line: %s", line)
+		}
+	}
+
+	// Send default Content-Type if not provided by CGI
+	if !contentTypeSent {
+		h.SendHeader("Content-Type", "text/html") // Or a more appropriate default
+	}
+
+	// Send Content-Length for the body
+	h.SendHeader("Content-Length", strconv.Itoa(len(body)))
+	h.EndHeaders() // Send all collected headers
+
+	// Write the body
+	if len(body) > 0 {
+		h.WFile.Write(body)
+	}
 	h.WFile.Flush()
+	talklog.Info(gid, "CGI script finished successfully")
 }
 
 // resolveCGIPath 解析CGI路径并验证脚本是否存在

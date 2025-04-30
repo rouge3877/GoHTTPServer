@@ -1,0 +1,44 @@
+<!-- register.html -->
+<html>
+<head>
+    <title>用户注册</title>
+    <style>
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>新用户注册</h1>
+    
+    <!-- 显示错误消息的位置 -->
+    <div class="error"></div>
+
+    <form action="register.py" method="POST" onsubmit="return validateForm()">
+        <label for="username">用户名:</label>
+        <input type="text" id="username" name="username" required minlength="3"><br><br>
+
+        <label for="password">密码:</label>
+        <input type="password" id="password" name="password" required minlength="4"><br><br>
+
+        <label for="confirm">确认密码:</label>
+        <input type="password" id="confirm" name="confirm" required><br><br>
+
+        <input type="submit" value="注册">
+    </form>
+
+    <p>已有账号？<a href="./index.html">立即登录</a></p>
+
+    <script>
+        function validateForm() {
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('confirm').value;
+            const errorDiv = document.querySelector('.error');
+
+            if (password !== confirm) {
+                errorDiv.textContent = '两次输入的密码不一致！';
+                return false;
+            }
+            return true;
+        }
+    </script>
+</body>
+</html>
