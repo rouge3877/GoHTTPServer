@@ -71,6 +71,7 @@ if validate_user(username, password):
     save_session(session_id, username)
     set_cookie(session_id)
 else:
+    print("Content-Type: text/html; charset=utf-8\r\n\r\n")
     print("""
 <html>
 <body>
