@@ -39,50 +39,62 @@ func NewCGIHTTPRequestHandler(server *server.HTTPServer, conn net.Conn) *CGIHTTP
 	return handler
 }
 
-// IsCGIScript 检查路径是否为CGI脚本
+// IsCGIScript 检查路径是否为CGI脚本，并支持虚拟路径映射
 func (h *CGIHTTPRequestHandler) IsCGIScript() bool {
 	/*
 	   Check if the request path is a CGI script.
 	   检查请求路径是否为CGI脚本。
 	   Returns: True if the path is a CGI script, False otherwise.
-	   返回：如果路径是CGI脚本，则为True，否则为False。
 	*/
 
 	var isCGIScript bool
 	isCGIScript = false
 
+	// 原始路径
+	originalPath := h.Path
+
+	// 1️⃣ 原始路径中是否包含CGI目录
 	for _, dir := range h.CGIDirectoriesList {
-		// check if there is any '/dir/' in h.Path
 		containCheck := "/" + dir + "/"
-		if strings.Contains(h.Path, containCheck) {
+		if strings.Contains(originalPath, containCheck) {
 			isCGIScript = true
 			break
 		}
 	}
 
-	// check if it's a runable file
+	// 2️⃣ 如果不是原始CGI路径，尝试映射：/xxx → /cgi-bin/xxx
+	if !isCGIScript && len(h.CGIDirectoriesList) > 0 {
+		mapped := filepath.Join("/", h.CGIDirectoriesList[0], originalPath)
+		filePath := filepath.Join(config.Cfg.Server.Workdir, mapped)
+
+		if fileInfo, err := os.Stat(filePath); err == nil {
+			if fileInfo.Mode()&0111 != 0 && !fileInfo.IsDir() {
+				// 是合法的可执行文件
+				h.Path = mapped
+				isCGIScript = true
+			}
+		}
+	}
+
+	// 3️⃣ 保留原始逻辑结构：检查是否为可运行文件
 	if isCGIScript {
 		// check if the file is executable
 		filePath := filepath.Join(config.Cfg.Server.Workdir, h.Path)
-		// check if the file is executable
 		fileInfo, err := os.Stat(filePath)
 		if err != nil {
-			// fmt.Println("Error: ", err)
 			return false
 		}
 		if fileInfo.Mode()&0111 == 0 {
-			// fmt.Println("File is not executable: ", filePath)
 			return false
 		}
-		// check if the file is a directory
 		if fileInfo.IsDir() {
-			// fmt.Println("File is a directory: ", filePath)
 			return false
 		}
 
 		// set h.ExecutablePath as the file path
 		h.ExecutablePath = filePath
 	}
+
 	return isCGIScript
 }
 
