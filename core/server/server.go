@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -38,11 +37,6 @@ type HTTPServer struct {
 	Wg             sync.WaitGroup     // 等待组，用于等待所有请求处理完成
 	Router         *router.Router     // 路由器，用于处理请求
 	EnableTLS      bool
-	ConnCount      atomic.Int32
-}
-
-func (s *HTTPServer) WgCounter() int32 {
-	return s.ConnCount.Load()
 }
 
 func (s *DualStackServer) GetRouter() *router.Router {
@@ -80,15 +74,10 @@ func NewHTTPServer(addr string, enbaleTLS bool) *HTTPServer {
 
 // ServerBind 绑定服务器地址并存储服务器名称
 func (s *ThreadingHTTPServer) ServerBind() error {
-	// listener, err := net.Listen("tcp", s.Addr)
-	// if err != nil {
-	// 	return err
-	// }
-	// s.Listener = listener
-
 	var (
-		listener net.Listener
-		err      error
+		listener   net.Listener
+		err        error
+		serverType string
 	)
 	network := "tcp"
 	if config.Cfg.Server.ForceIPV4 {
@@ -96,6 +85,7 @@ func (s *ThreadingHTTPServer) ServerBind() error {
 		talklog.Boot(talklog.GID(), "强制IPV4")
 	}
 	if s.EnableTLS {
+		serverType = "HTTPS"
 		cert, err := tls.LoadX509KeyPair(config.Cfg.Server.CertFile, config.Cfg.Server.KeyFile)
 		if err != nil {
 			talklog.Boot(talklog.GID(), "Error loading TLS certificate and key: %v", err)
@@ -109,6 +99,7 @@ func (s *ThreadingHTTPServer) ServerBind() error {
 			return fmt.Errorf("error starting TLS listener: %v", err)
 		}
 	} else {
+		serverType = "HTTP"
 		listener, err = net.Listen(network, s.Addr)
 		if err != nil {
 			talklog.Boot(talklog.GID(), "Error starting listener: %v", err)
@@ -135,6 +126,10 @@ func (s *ThreadingHTTPServer) ServerBind() error {
 	// 解析端口
 	s.ServerPort = 0
 	fmt.Sscanf(port, "%d", &s.ServerPort)
+
+	fmt.Printf("Serving %s on %s port %d (%s://localhost:%d/) ...\n", serverType, config.Cfg.Server.IPv4, s.ServerPort, strings.ToLower(serverType), s.ServerPort)
+
+	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return nil
 }
@@ -163,35 +158,17 @@ func NewThreadingHTTPServer(addr string, enableTLS bool) *ThreadingHTTPServer {
 	}
 }
 
-// StartServer 启动HTTP服务器的便捷函数
+// StartServer 创建HTTP/HTTPS服务器实例的便捷函数
 func StartServer(enableTLS bool) (*ThreadingHTTPServer, error) {
 	addr := fmt.Sprintf("%s:%d", config.Cfg.Server.IPv4, config.Cfg.Server.Port)
 	server := NewThreadingHTTPServer(addr, enableTLS)
-	serverType := ""
-	if config.Cfg.Server.EnableTLS {
-		serverType = "HTTPS"
-	} else {
-		serverType = "HTTP"
-	}
-	fmt.Printf("Serving %s on %s port %d (%s://localhost:%d/) ...\n", serverType, config.Cfg.Server.IPv4, config.Cfg.Server.Port, strings.ToLower(serverType), config.Cfg.Server.Port)
-	talklog.BootDone(time.Since(config.Cfg.StartTime))
-
 	return server, nil
 }
 
-// StartDualStackServer 启动双栈HTTP服务器的便捷函数
+// StartDualStackServer 创建双栈HTTP服务器实例的便捷函数
 func StartDualStackServer(enableTLS bool) (*DualStackServer, error) {
 	addr := fmt.Sprintf("[%s]:%d", config.Cfg.Server.IPv6, config.Cfg.Server.Port)
 	server := NewDualStackServer(addr, config.Cfg.Server.Workdir, enableTLS)
-	serverType := ""
-	if config.Cfg.Server.EnableTLS {
-		serverType = "HTTPS"
-	} else {
-		serverType = "HTTP"
-	}
-	fmt.Printf("Serving %s on [%s] port %d (%s://localhost:%d/) at work directory :[%s]...\n",
-		serverType, config.Cfg.Server.IPv6, config.Cfg.Server.Port, strings.ToLower(serverType), config.Cfg.Server.Port, config.Cfg.Server.Workdir)
-	talklog.BootDone(time.Since(config.Cfg.StartTime))
 
 	return server, nil
 }
@@ -212,10 +189,14 @@ func NewDualStackServer(addr string, directory string, enableTLS bool) *DualStac
 
 // 手动构造 socket，控制 socket 选项，再包裹 TLS
 func (s *DualStackServer) ServerBind() error {
-	var baseListener net.Listener
-	var err error
+	var (
+		baseListener net.Listener
+		err          error
+		serverType   string
+	)
 
-	if config.Cfg.Server.EnableTLS {
+	if s.EnableTLS {
+		serverType = "HTTPS"
 		// 先用 ListenConfig 创建底层 socket，确保关闭 IPV6_V6ONLY
 		lcfg := &net.ListenConfig{
 			Control: func(network, address string, c syscall.RawConn) error {
@@ -248,6 +229,7 @@ func (s *DualStackServer) ServerBind() error {
 		s.Listener = tls.NewListener(baseListener, tlsConfig)
 	} else {
 		// 普通监听
+		serverType = "HTTP"
 		lcfg := &net.ListenConfig{}
 		s.Listener, err = lcfg.Listen(context.Background(), "tcp", s.Addr)
 		if err != nil {
@@ -263,6 +245,9 @@ func (s *DualStackServer) ServerBind() error {
 	s.ServerName, _ = os.Hostname()
 	fmt.Sscanf(port, "%d", &s.ServerPort)
 
+	fmt.Printf("Serving %s on [%s] port %d (%s://localhost:%d/) at work directory :[%s]...\n",
+		serverType, config.Cfg.Server.IPv6, s.ServerPort, strings.ToLower(serverType), s.ServerPort, config.Cfg.Server.Workdir)
+	talklog.BootDone(time.Since(config.Cfg.StartTime))
 	return nil
 }
 

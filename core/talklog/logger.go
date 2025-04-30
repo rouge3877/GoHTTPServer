@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Singert/xjtu_cnlab/core/utils"
 )
 
 var (
@@ -32,6 +34,9 @@ var (
 
 func InitLogConfig(lgcfg *LogConfig) {
 	logConfig = *lgcfg
+	bufferLock.Lock()
+	logBuffer = nil
+	bufferLock.Unlock()
 	if logConfig.LogToFile {
 		var err error
 		os.MkdirAll(getDir(logConfig.FilePath), 0755)
@@ -110,17 +115,6 @@ func logLine(color, level string, gid uint64, format string, a ...any) {
 	}
 }
 
-// func stripANSi(s string) string {
-// 	return strings.ReplaceAll(
-// 		strings.ReplaceAll(
-// 			strings.ReplaceAll(
-// 				strings.ReplaceAll(s, ColorReset, ""),
-// 				ColorRed, ""),
-// 			ColorGreen, ""),
-// 		ColorYellow, "")
-
-// }
-
 // stripANSi removes ANSI color escape codes from a string.
 func stripANSi(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
@@ -155,8 +149,8 @@ func Hdr(gid uint64, key, value string) {
 	logLine(ColorCyan, "HDR", gid, "%s: %s", key, strings.TrimSpace(value))
 }
 
-func Resp(gid uint64, status int, contentLength int, durationMs float64) {
-	logLine(ColorCyan, "RESP", gid, "%d OK (Content-Length: %d) - served in %.8fms", status, contentLength, durationMs)
+func Resp(gid uint64, status int) {
+	logLine(ColorCyan, "RESP", gid, "%d %s", status, utils.StatusMessages[utils.HTTPStatus(status)])
 }
 
 // GetRecentLogs 返回最近的缓存日志（不含颜色）

@@ -1,4 +1,4 @@
-package handler
+package utils
 
 // HTTPStatus 定义HTTP状态码常量
 type HTTPStatus int
@@ -35,7 +35,7 @@ const (
 )
 
 // 状态码对应的短消息和长消息
-var statusMessages = map[HTTPStatus][]string{
+var StatusMessages = map[HTTPStatus][]string{
 	OK:                              {"OK", "Request fulfilled, document follows"},
 	CREATED:                         {"Created", "Document created, URL follows"},
 	ACCEPTED:                        {"Accepted", "Request accepted, processing continues"},
@@ -65,7 +65,7 @@ var statusMessages = map[HTTPStatus][]string{
 }
 
 // 默认错误消息模板
-const defaultErrorMessageFormat = `<!DOCTYPE HTML>
+const DefaultErrorMessageFormat = `<!DOCTYPE HTML>
 <html lang="en">
     <head>
         <meta charset="utf-8">
@@ -80,4 +80,4 @@ const defaultErrorMessageFormat = `<!DOCTYPE HTML>
 </html>
 `
 
-const defaultErrorContentType = "text/html;charset=utf-8"
+const DefaultErrorContentType = "text/html;charset=utf-8"

@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	_ "github.com/joho/godotenv"
@@ -13,22 +14,22 @@ import (
 
 type Config struct {
 	Server struct {
-		Port        int
-		HTTPPort    int
-		HTTPSPort   int
-		Proto       string
-		IsCgi       bool
-		Workdir     string
-		IPv4        string
-		IPv6        string
-		IsDualStack bool
-		IsGzip      bool
+		Port           int
+		HTTPPort       int
+		HTTPSPort      int
+		Proto          string
+		IsCgi          bool
+		Workdir        string
+		IPv4           string
+		IPv6           string
+		IsDualStack    bool
+		IsGzip         bool
 		CGIDirectories []string
-		DeadLine    time.Duration
-		EnableTLS   bool
-		CertFile    string
-		KeyFile     string
-		ForceIPV4   bool
+		DeadLine       time.Duration
+		EnableTLS      bool
+		CertFile       string
+		KeyFile        string
+		ForceIPV4      bool
 	}
 
 	Logger struct {
@@ -40,6 +41,11 @@ type Config struct {
 }
 
 var Cfg Config
+var GlobalConnCount atomic.Int32
+
+func IncConn()            { GlobalConnCount.Add(1) }
+func DecConn()            { GlobalConnCount.Add(-1) }
+func GetConnCount() int32 { return GlobalConnCount.Load() }
 
 func InitConfig() {
 	viper.SetConfigName("config")
