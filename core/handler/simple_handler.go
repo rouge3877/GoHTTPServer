@@ -97,7 +97,7 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 	contentType := h.Headers["Content-Type"]
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		h.SendError(BAD_REQUEST, "Content-Type must be multipart/form-data")
+		h.SendError(utils.BAD_REQUEST, "Content-Type must be multipart/form-data")
 		talklog.Error(talklog.GID(), "File upload error: %v", err)
 
 		return
@@ -117,7 +117,7 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 			break
 		}
 		if err != nil {
-			h.SendError(INTERNAL_SERVER_ERROR, "Error reading multipart data")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Error reading multipart data")
 			talklog.Error(talklog.GID(), "File upload error: %v", err)
 
 			return
@@ -134,14 +134,14 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 		}
 		dst, err := os.Create(dest)
 		if err != nil {
-			h.SendError(INTERNAL_SERVER_ERROR, "Cannot create file")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Cannot create file")
 			talklog.Error(talklog.GID(), "File upload error: %v", err)
 
 			return
 		}
 		if _, err := io.Copy(dst, part); err != nil {
 			dst.Close()
-			h.SendError(INTERNAL_SERVER_ERROR, "Error saving file")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Error saving file")
 			talklog.Error(talklog.GID(), "File upload error: %v", err)
 
 			return
@@ -153,7 +153,7 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 		talklog.Info(talklog.GID(), "File uploaded to %s", dest)
 
 	}
-	h.SendResponse(OK, "Upload successful")
+	h.SendResponse(utils.OK, "Upload successful")
 
 	h.EndHeaders()
 }
@@ -176,10 +176,10 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	stat, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			h.SendError(NOT_FOUND, "File not found")
+			h.SendError(utils.NOT_FOUND, "File not found")
 			talklog.Warn(talklog.GID(), "File not found or inaccessible: %s", path)
 		} else {
-			h.SendError(INTERNAL_SERVER_ERROR, "File error")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "File error")
 			talklog.Warn(talklog.GID(), "File not found or inaccessible: %s", path)
 
 		}
@@ -201,7 +201,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 			parsedURL.Path += "/"
 			newURL := parsedURL.String()
 
-			h.SendResponse(MOVED_PERMANENTLY, "")
+			h.SendResponse(utils.MOVED_PERMANENTLY, "")
 			h.SendHeader("Location", newURL)
 			h.SendHeader("Content-Length", "0")
 			h.EndHeaders()
@@ -249,7 +249,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 			}
 			if !foundIndex {
 				// Should have been handled by ListDirectory returning a file
-				h.SendError(INTERNAL_SERVER_ERROR, "Index file logic error")
+				h.SendError(utils.INTERNAL_SERVER_ERROR, "Index file logic error")
 				return nil, os.ErrNotExist // Or a more specific error
 			}
 			// Proceed to handle the found index file
@@ -258,7 +258,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 
 	// 第三阶段：路径验证 (Check again after potential index file resolution)
 	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, string(filepath.Separator)) {
-		h.SendError(NOT_FOUND, "File not found")
+		h.SendError(utils.NOT_FOUND, "File not found")
 		return nil, os.ErrNotExist
 	}
 
@@ -268,7 +268,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		if t, err := time.Parse(time.RFC1123, ims); err == nil {
 			t = t.UTC()
 			if !modTime.After(t) {
-				h.SendResponse(NOT_MODIFIED, "")
+				h.SendResponse(utils.NOT_MODIFIED, "")
 				h.EndHeaders()
 				return nil, nil // Return nil, nil for NOT_MODIFIED
 			}
@@ -278,7 +278,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	// 第五阶段：打开文件
 	f, err = os.Open(path)
 	if err != nil {
-		h.SendError(NOT_FOUND, "File not found")
+		h.SendError(utils.NOT_FOUND, "File not found")
 		return nil, err
 	}
 
@@ -310,7 +310,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 					// Get stat of the compressed file
 					if tmpStat, statErr := tmpF.Stat(); statErr == nil {
 						// Compression successful! Send headers for compressed file.
-						h.SendResponse(OK, "")
+						h.SendResponse(utils.OK, "")
 						h.SendHeader("Content-Encoding", "gzip")
 						h.SendHeader("Content-Type", h.GuessType(path))                          // Use original path for type
 						h.SendHeader("Content-Length", strconv.FormatInt(tmpStat.Size(), 10))    // Compressed size
@@ -337,7 +337,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 				// Need to rewind original file 'f' as copy might have consumed it
 				if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
 					talklog.Error(talklog.GID(), "Error rewinding original file after failed compression: %v", seekErr)
-					h.SendError(INTERNAL_SERVER_ERROR, "Failed to process file")
+					h.SendError(utils.INTERNAL_SERVER_ERROR, "Failed to process file")
 					// The main defer will close f
 					return nil, seekErr
 				}
@@ -352,7 +352,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		talklog.Info(talklog.GID(), "Gzip not enabled or not applicable for: %s", path)
 	}
 	// 第七阶段：发送未压缩文件的头信息 (if gzip not applicable or failed)
-	h.SendResponse(OK, "")
+	h.SendResponse(utils.OK, "")
 	h.SendHeader("Content-Type", h.GuessType(path))
 	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10)) // Original size
 	h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123))
@@ -422,14 +422,14 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 	// No index file found, proceed with listing
 	d, err := os.Open(path)
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Cannot open directory for listing")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Cannot open directory for listing")
 		return nil, err
 	}
 	defer d.Close()
 
 	files, err := d.Readdir(-1)
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Error reading directory")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error reading directory")
 		return nil, err
 	}
 
@@ -479,7 +479,7 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 	if err != nil {
 		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
 
-		h.SendError(INTERNAL_SERVER_ERROR, "Error creating temporary file for listing")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error creating temporary file for listing")
 
 		return nil, err
 	}
@@ -489,7 +489,7 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 		os.Remove(tmpFile.Name())
 		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
 
-		h.SendError(INTERNAL_SERVER_ERROR, "Error writing directory listing")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error writing directory listing")
 		return nil, err
 	}
 	if _, err := tmpFile.Seek(0, 0); err != nil {
@@ -497,12 +497,12 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 		os.Remove(tmpFile.Name())
 		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
 
-		h.SendError(INTERNAL_SERVER_ERROR, "Error seeking in directory listing file")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error seeking in directory listing file")
 		return nil, err
 	}
 	talklog.Info(talklog.GID(), "Generated directory listing for: %s", path)
 	// Send response headers *before* returning the file
-	h.SendResponse(OK, "")
+	h.SendResponse(utils.OK, "")
 	h.SendHeader("Content-Type", "text/html; charset=utf-8")
 	h.SendHeader("Content-Length", strconv.Itoa(len(html)))
 	// Add Last-Modified? Maybe based on directory mod time? For now, omit.

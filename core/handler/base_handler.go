@@ -16,6 +16,7 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/utils"
 )
 
 type ProcessMethod interface {
@@ -72,8 +73,8 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		CloseConnection:       true,
 		ServerVersion:         config.GoHTTPServerName() + "/" + strings.Split(config.GoHTTPServerVersion(), " ")[0],
 		SysVersion:            "Go/" + strings.Split(config.GoVersion(), " ")[0],
-		ErrorMessageFormat:    defaultErrorMessageFormat,
-		ErrorContentType:      defaultErrorContentType,
+		ErrorMessageFormat:    utils.DefaultErrorMessageFormat,
+		ErrorContentType:      utils.DefaultErrorContentType,
 		ProtocolVersion:       config.Cfg.Server.Proto,
 		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
@@ -130,7 +131,7 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 			h.RequestLine = ""
 			h.RequestVersion = ""
 			h.Command = ""
-			h.SendError(REQUEST_URI_TOO_LONG, "")
+			h.SendError(utils.REQUEST_URI_TOO_LONG, "")
 			return
 		}
 
@@ -154,7 +155,7 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		mname := "Do" + h.Command
 		method := h.GetMethod(mname)
 		if method == nil {
-			h.SendError(NOT_IMPLEMENTED, fmt.Sprintf("Unsupported method (%s)", h.Command))
+			h.SendError(utils.NOT_IMPLEMENTED, fmt.Sprintf("Unsupported method (%s)", h.Command))
 			return
 		}
 
@@ -259,7 +260,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 
 			// 检查HTTP版本是否支持
 			if major >= 2 {
-				h.SendError(HTTP_VERSION_NOT_SUPPORTED, fmt.Sprintf("Invalid HTTP version (%s)", baseVersionNumber))
+				h.SendError(utils.HTTP_VERSION_NOT_SUPPORTED, fmt.Sprintf("Invalid HTTP version (%s)", baseVersionNumber))
 				return false
 			}
 
@@ -268,14 +269,14 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 		}
 
 		if !try() {
-			h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request version (%s)", version))
+			h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request version (%s)", version))
 			return false
 		}
 	}
 
 	// 检查请求行格式
 	if !(2 <= len(words) && len(words) <= 3) {
-		h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request syntax (%s)", requestLine))
+		h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request syntax (%s)", requestLine))
 		return false
 	}
 
@@ -284,7 +285,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	if len(words) == 2 {
 		h.CloseConnection = true
 		if command != "GET" {
-			h.SendError(BAD_REQUEST, fmt.Sprintf("Bad HTTP/0.9 request type (%s)", command))
+			h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad HTTP/0.9 request type (%s)", command))
 			return false
 		}
 	}
@@ -295,7 +296,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	// 解析查询字符串
 	u, err := url.ParseRequestURI(h.RawURL)
 	if err != nil {
-		h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request URI (%s)", h.RawURL))
+		h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request URI (%s)", h.RawURL))
 		return false
 	}
 	h.Path = u.Path
@@ -317,7 +318,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 			} else {
 				msg = "Too many headers"
 			}
-			h.SendError(REQUEST_HEADER_FIELDS_TOO_LARGE, msg, err.Error())
+			h.SendError(utils.REQUEST_HEADER_FIELDS_TOO_LARGE, msg, err.Error())
 			return false
 		}
 	}
@@ -372,17 +373,17 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 
 // HandleExpect100 处理Expect: 100-continue头
 func (h *BaseHTTPRequestHandler) HandleExpect100() bool {
-	h.SendResponseOnly(CONTINUE, "")
+	h.SendResponseOnly(utils.CONTINUE, "")
 	h.EndHeaders()
 	return true
 }
 
 // SendError 发送错误响应
-func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args ...string) {
+func (h *BaseHTTPRequestHandler) SendError(code utils.HTTPStatus, message string, args ...string) {
 	var shortMsg, longMsg string
 
 	// 获取状态码对应的消息
-	if msgs, ok := StatusMessages[code]; ok {
+	if msgs, ok := utils.StatusMessages[code]; ok {
 		shortMsg, longMsg = msgs[0], msgs[1]
 	} else {
 		shortMsg, longMsg = "???", "???"
@@ -402,7 +403,7 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 
 	// 某些状态码不需要消息体
 	var body []byte
-	if code >= 200 && code != NO_CONTENT && code != RESET_CONTENT && code != NOT_MODIFIED {
+	if code >= 200 && code != utils.NO_CONTENT && code != utils.RESET_CONTENT && code != utils.NOT_MODIFIED {
 		// HTML编码以防止跨站脚本攻击
 		explain := longMsg
 		if len(args) > 0 {
@@ -435,7 +436,7 @@ func (h *BaseHTTPRequestHandler) LogError(format string, args ...interface{}) {
 }
 
 // SendResponse 发送响应
-func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
+func (h *BaseHTTPRequestHandler) SendResponse(code utils.HTTPStatus, message string) {
 
 	h.LogRequest(code, 0)
 	h.SendResponseOnly(code, message)
@@ -443,14 +444,13 @@ func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
 	h.SendHeader("Date", h.DateTimeString())
 
 	talklog.Resp(talklog.GID(), int(code))
-
 }
 
 // SendResponseOnly 只发送响应行
-func (h *BaseHTTPRequestHandler) SendResponseOnly(code HTTPStatus, message string) {
+func (h *BaseHTTPRequestHandler) SendResponseOnly(code utils.HTTPStatus, message string) {
 	if h.RequestVersion != "HTTP/0.9" {
 		if message == "" {
-			if msgs, ok := StatusMessages[code]; ok {
+			if msgs, ok := utils.StatusMessages[code]; ok {
 				message = msgs[0]
 			} else {
 				message = ""
@@ -508,7 +508,7 @@ func (h *BaseHTTPRequestHandler) FlushHeaders() {
 }
 
 // LogRequest 记录请求
-func (h *BaseHTTPRequestHandler) LogRequest(code HTTPStatus, size int) {
+func (h *BaseHTTPRequestHandler) LogRequest(code utils.HTTPStatus, size int) {
 	fmt.Printf("%s - - [%s] \"%s\" %d %d\n",
 		h.ClientAddress,
 		h.LogDate(),
@@ -538,23 +538,23 @@ func (h *BaseHTTPRequestHandler) DateTimeString() string {
 // DoPOST 处理POST请求
 func (h *BaseHTTPRequestHandler) DoPOST() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoPUT 处理PUT请求
 func (h *BaseHTTPRequestHandler) DoPUT() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoDELETE 处理DELETE请求
 func (h *BaseHTTPRequestHandler) DoDELETE() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoOPTIONS 处理OPTIONS请求
 func (h *BaseHTTPRequestHandler) DoOPTIONS() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }

@@ -65,7 +65,7 @@ var StatusMessages = map[HTTPStatus][]string{
 }
 
 // 默认错误消息模板
-const defaultErrorMessageFormat = `<!DOCTYPE HTML>
+const DefaultErrorMessageFormat = `<!DOCTYPE HTML>
 <html lang="en">
     <head>
         <meta charset="utf-8">
@@ -80,4 +80,4 @@ const defaultErrorMessageFormat = `<!DOCTYPE HTML>
 </html>
 `
 
-const defaultErrorContentType = "text/html;charset=utf-8"
+const DefaultErrorContentType = "text/html;charset=utf-8"

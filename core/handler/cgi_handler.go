@@ -17,6 +17,7 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/utils"
 )
 
 // CGIHTTPRequestHandler 实现CGI HTTP请求处理器
@@ -149,7 +150,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 			contentLength, err := strconv.ParseInt(contentLengthStr, 10, 64)
 			if err != nil {
 				talklog.Error(gid, "Invalid Content-Length: %v", err)
-				h.SendError(BAD_REQUEST, "Invalid Content-Length header")
+				h.SendError(utils.BAD_REQUEST, "Invalid Content-Length header")
 				return
 			}
 			if contentLength > 0 {
@@ -159,7 +160,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 				bytesRead, err := io.Copy(&postData, lr)
 				if err != nil && err != io.EOF {
 					talklog.Error(gid, "Error reading POST data: %v", err)
-					h.SendError(INTERNAL_SERVER_ERROR, "Failed to read request body")
+					h.SendError(utils.INTERNAL_SERVER_ERROR, "Failed to read request body")
 					return
 				}
 				if bytesRead != contentLength {
@@ -188,7 +189,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 			errMsg += fmt.Sprintf("\nScript output:\n%s", string(output))
 		}
 		talklog.Error(gid, errMsg)
-		h.SendError(INTERNAL_SERVER_ERROR, fmt.Sprintf("CGI script execution failed: %v", err))
+		h.SendError(utils.INTERNAL_SERVER_ERROR, fmt.Sprintf("CGI script execution failed: %v", err))
 		return
 	}
 
@@ -221,7 +222,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 	}
 
 	// Send default OK response first (can be overridden by CGI headers)
-	h.SendResponse(OK, "")
+	h.SendResponse(utils.OK, "")
 	contentTypeSent := false
 
 	// Parse and send CGI headers
@@ -247,7 +248,7 @@ func (h *CGIHTTPRequestHandler) RunCGI() {
 							statusMsg = statusParts[1]
 						}
 						// Override the initial OK response
-						h.SendResponseOnly(HTTPStatus(statusCode), statusMsg)
+						h.SendResponseOnly(utils.HTTPStatus(statusCode), statusMsg)
 						talklog.Info(gid, "CGI Status header: %s", value)
 					} else {
 						talklog.Warn(gid, "Invalid CGI Status header: %s", value)
