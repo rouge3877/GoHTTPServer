@@ -18,11 +18,7 @@ func RegisterAppRoutes(r *router.Router) {
 		g.RegisterRoute("POST", "/register", "discription", HandleRegister)
 		g.RegisterRoute("POST", "/login", "discription", HandleLogin)
 	})
-	r.RegisterGroupRoute("/admin", func(g *router.Group) {
-		g.RegisterRoute("GET", "/reload", "discription", HandleAdminReload)
-		g.RegisterRoute("GET", "/download-logs", "discription", HandleDownloadLogs)
 
-	})
 	r.RegisterRoute("GET", "logs", "discription", HandleLogs)
 	r.RegisterGroupRoute("/debug", func(g *router.Group) {
 		g.RegisterRoute("GET", "/", "discription", HandleDebugRoutes)
@@ -30,6 +26,8 @@ func RegisterAppRoutes(r *router.Router) {
 		g.RegisterRoute("GET", "/routes", "discription", HandleDebugRoutesSmart)
 		g.RegisterRoute("GET", "/update-route", "discription", HandleUpdateRoute)
 		g.RegisterRoute("GET", "/dashboard", "discription", HandleDebugDashboard)
+		g.RegisterRoute("GET", "/reload", "discription", HandleAdminReload)
+		g.RegisterRoute("GET", "/download-logs", "discription", HandleDownloadLogs)
 	})
 
 }
