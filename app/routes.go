@@ -10,7 +10,6 @@ import (
 
 // RegisterAppRoutes 注册应用路由
 func RegisterAppRoutes(r *router.Router) {
-	r.RegisterRoute("GET", "/", "discription", HandleRoot)
 	r.RegisterRoute("GET", "/hello", "discription", HandleHello)
 	r.RegisterRoute("POST", "/upload", "discription", HandleUpload)
 
@@ -30,20 +29,6 @@ func RegisterAppRoutes(r *router.Router) {
 		g.RegisterRoute("GET", "/download-logs", "discription", HandleDownloadLogs)
 	})
 
-}
-
-func HandleRoot(ctx *router.Context) {
-	conn := ctx.Conn.(net.Conn)
-	writer := bufio.NewWriter(conn)
-
-	body := []byte("Welcome to Root!")
-
-	writer.WriteString("HTTP/1.1 200 OK\r\n")
-	writer.WriteString("Content-Type: text/plain\r\n")
-	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n")
-	writer.WriteString("\r\n")
-	writer.Write(body)
-	writer.Flush()
 }
 
 func HandleHello(ctx *router.Context) {

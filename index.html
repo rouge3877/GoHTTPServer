@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>&#x1f310; HTTP&sol;HTTPS &#x670d;&#x52a1;&#x5668;&#x6a21;&#x5757;&#x8bf4;&#x660e;&#x6587;&#x6863;</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <h1 id="-httphttps-服务器模块说明文档">🌐 HTTP/HTTPS 服务器模块说明文档</h1>
+<h2 id="by-网安2201常兆鑫-计科2205李雨轩"><strong>by 网安2201常兆鑫 计科2205李雨轩</strong></h2>
+<h1 id="-项目功能总览httphttps-服务器">✅ 项目功能总览：HTTP/HTTPS 服务器</h1>
+<h2 id="-启动与配置">🚀 启动与配置</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 从 <code>config.yml</code> 加载配置项</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持 IPv4、IPv6、双栈（DualStack）监听</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持 HTTP 与 HTTPS 两种协议（可选开启 TLS）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 配置可控制：
+<ul>
+<li>HTTPPort / HTTPSPort</li>
+<li>是否启用 CGI（<code>IsCgi</code>）</li>
+<li>服务器工作目录（<code>Workdir</code>）</li>
+<li>强制 IPv4（<code>ForceIPV4</code>）</li>
+<li>TLS 证书文件路径（<code>CertFile</code> / <code>KeyFile</code>）</li>
+</ul>
+</li>
+</ul>
+<h2 id="-http-服务核心功能">🌐 HTTP 服务核心功能</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持 HTTP/1.1 协议</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持常见方法：GET、POST、HEAD</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 实现 Keep-Alive 连接保持机制</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 请求多路并发处理（基于 goroutine）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 响应支持分块传输（Chunked Transfer Encoding）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 请求超时与连接超时控制（Deadline）</li>
+</ul>
+<h2 id="-静态资源服务">📁 静态资源服务</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持静态文件访问（文件/目录）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 自动解析 MIME 类型</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 目录浏览功能（可列出目录结构）</li>
+</ul>
+<h2 id="️-cgi-动态内容支持">⚙️ CGI 动态内容支持</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持配置 CGI 路由</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 使用外部程序处理请求，支持：
+<ul>
+<li>设置 CGI 环境变量（如 REQUEST_METHOD, QUERY_STRING）</li>
+<li>读取标准输入（POST 数据）</li>
+<li>输出标准输出（响应正文）</li>
+</ul>
+</li>
+</ul>
+<h2 id="-调试与监控接口">🧪 调试与监控接口</h2>
+<p>通过 <code>/debug</code> 路由访问，支持：</p>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> HTML 页面展示当前注册的所有路由</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> JSON 格式展示路由结构（用于自动化解析）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 系统信息展示（GOOS/GOARCH, CPU, Mem 使用率）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 实时日志浏览</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 日志关键字搜索功能</li>
+</ul>
+<h2 id="-路由管理">🗂 路由管理</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持动态路由注册与匹配</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 区分请求方法（Method）与路径（Pattern）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 每条路由支持附带描述（用于调试面板）</li>
+</ul>
+<h2 id="-中间层与请求处理上下文">🛠 中间层与请求处理上下文</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 每个请求封装为 <code>Context</code> 结构：
+<ul>
+<li><code>Request</code>、<code>Conn</code>、响应输出等封装</li>
+<li>支持 HTML/JSON 输出方法</li>
+</ul>
+</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 请求路径匹配后调度给对应的 Handler 处理器</li>
+</ul>
+<h2 id="-日志系统">🪵 日志系统</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 终端实时输出日志</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 可选持久化至日志文件（默认每日分割）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持：
+<ul>
+<li>启动日志（Boot）</li>
+<li>访问日志（Access）</li>
+<li>错误日志（Error）</li>
+<li>日志级别可控（Info/Warn/Error）</li>
+</ul>
+</li>
+</ul>
+<h2 id="-工具与辅助功能">🧰 工具与辅助功能</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持 IP 类型判断（IPv4/IPv6）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 自动检测路径是否合法（防止目录穿越）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持文件 MIME 类型识别</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 可设置文件响应时的 Content-Type 和 Content-Length</li>
+</ul>
+<h2 id="-https-与安全支持">🔐 HTTPS 与安全支持</h2>
+<ul class="contains-task-list">
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 可开启 HTTPS（通过配置 EnbaleTLS）</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 自定义证书/私钥路径</li>
+<li class="task-list-item enabled"><input class="task-list-item-checkbox" checked=""type="checkbox"> 支持仅启用 HTTPS 或 HTTP + HTTPS 双监听</li>
+</ul>
+<h2 id="-项目模块结构概览">🧩 项目模块结构概览</h2>
+<p>项目采用模块化设计，主要分为以下几个核心模块：</p>
+<table>
+<thead>
+<tr>
+<th>模块路径</th>
+<th>功能描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>core/config</code></td>
+<td>配置管理（如 HTTP/HTTPS 端口、TLS 开关等）</td>
+</tr>
+<tr>
+<td><code>core/server</code></td>
+<td>HTTP(S) 服务器主逻辑，包含监听、调度、请求处理等</td>
+</tr>
+<tr>
+<td><code>core/router</code></td>
+<td>路由管理与注册逻辑</td>
+</tr>
+<tr>
+<td><code>core/cgi</code></td>
+<td>CGI 程序调用与管理</td>
+</tr>
+<tr>
+<td><code>core/log</code> / <code>core/talklog</code></td>
+<td>日志输出与事件记录</td>
+</tr>
+<tr>
+<td><code>core/debug</code></td>
+<td>调试面板接口（如路由查看、日志搜索等）</td>
+</tr>
+<tr>
+<td><code>core/util</code></td>
+<td>通用工具函数（如文件读取、IP检测等）</td>
+</tr>
+<tr>
+<td><code>cmd/main.go</code></td>
+<td>项目入口，根据配置启动服务</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="-模块间调用关系图文本描述">🔁 模块间调用关系图（文本描述）</h2>
+<pre><code class="language-text">main.go
+  └──&gt; core/config               # 加载配置
+  └──&gt; core/server.StartServer  # 启动服务器（传入路由表）
+
+core/server
+  └──&gt; core/router.NewRouter            # 初始化路由器
+  └──&gt; core/router.Router.Register(...)# 注册常规路由、静态路由、CGI路由、调试路由
+  └──&gt; net.Listen(...)                  # 启动 TCP/HTTPS 服务
+  └──&gt; core/config.ProtoConfig         # 判断是否启用 CGI、TLS、DualStack 等
+  └──&gt; core/cgi                        # 执行 CGI 脚本请求
+  └──&gt; core/util                       # 工具函数（如 MIME、IP、路径）
+  └──&gt; core/talklog.Logger             # 日志记录
+
+core/debug
+  └──&gt; core/router.Router              # 调试页需访问注册路由等结构
+  └──&gt; net.Conn (Conn 接口传入 context) # 支持 HTML/JSON 两种格式输出
+
+core/router
+  └──&gt; Handler 包                      # handler 逻辑模块注册，如 debug、cgi、static
+</code></pre>
+<hr>
+<h2 id="-模块功能详解">🔎 模块功能详解</h2>
+<h3 id="1-coreconfig--配置系统">1. <code>core/config</code> – 配置系统</h3>
+<ul>
+<li>支持从 YAML 文件读取参数（如 IPv6 开关、TLS 文件路径等）。</li>
+<li>提供 <code>ProtoConfig</code> 结构体描述运行模式（如 CGI 开启、启用 TLS）。</li>
+<li>所有配置值被加载到 <code>globalconfig.GlobalConfig</code>。</li>
+</ul>
+<h3 id="2-coreserver--主服务器模块">2. <code>core/server</code> – 主服务器模块</h3>
+<p><img src="file:////home/doraemon/Workspace/xjtu_cnlab/assets/server_uml.png" alt="core/server UML"></p>
+<ul>
+<li>支持 HTTP/1.1 标准。</li>
+<li>支持：
+<ul>
+<li><code>GET</code> / <code>POST</code> / <code>HEAD</code> 请求；</li>
+<li>Keep-Alive；</li>
+<li>多线程并发处理；</li>
+<li>路由表调度；</li>
+<li>CGI 执行；</li>
+<li>HTTPS 支持；</li>
+<li>IPv4 / IPv6 / DualStack；</li>
+</ul>
+</li>
+<li>主入口 <code>StartServer()</code> 使用配置启动监听器。</li>
+</ul>
+<h3 id="3-corerouter--路由管理器">3. <code>core/router</code> – 路由管理器</h3>
+<p><img src="file:////home/doraemon/Workspace/xjtu_cnlab/assets/router_uml.png" alt="router UML"></p>
+<ul>
+<li>提供 <code>Router.Register()</code> 系列函数用于注册以下类别：
+<ul>
+<li>通用业务逻辑路由；</li>
+<li>静态文件路由；</li>
+<li>调试路由；</li>
+<li>CGI 路由。</li>
+</ul>
+</li>
+<li>支持路径匹配、Method 匹配等。</li>
+</ul>
+<h3 id="4-appdebug--调试模块">4. <code>app/debug</code> – 调试模块</h3>
+<p><img src="file:////home/doraemon/Workspace/xjtu_cnlab/assets/debug_uml.png" alt="debug UML"></p>
+<ul>
+<li>提供 <code>/debug</code> 接口组，支持：
+<ul>
+<li>查看已注册路由（HTML/JSON）；</li>
+<li>查看系统信息（如 CPU/内存）；</li>
+<li>日志文件内容查看；</li>
+<li>日志搜索功能。</li>
+</ul>
+</li>
+<li>采用独立 HTML 模板输出。</li>
+</ul>
+<h3 id="5-corecgi--cgi-管理模块">5. <code>core/cgi</code> – CGI 管理模块</h3>
+<p><img src="file:////home/doraemon/Workspace/xjtu_cnlab/assets/cgi_uml.png" alt="core/cgi"></p>
+<ul>
+<li>支持 <code>IsCgi</code> 配置下启用动态脚本处理。</li>
+<li>每个 <code>.cgi</code> 路由绑定执行 <code>exec.Command(...)</code> 启动 CGI 程序。</li>
+<li>环境变量等参数注入完整。</li>
+<li>支持地址映射，访问cgi脚本无须在url中加入<code>/cgi-bin</code> or <code>/cgi</code></li>
+</ul>
+<h3 id="6-coreutil--通用工具模块">6. <code>core/util</code> – 通用工具模块</h3>
+<ul>
+<li>提供路径安全处理、MIME 类型判断、IPv4/IPv6 判断、时间格式等通用函数。</li>
+</ul>
+<h3 id="7-corelog--coretalklog--日志系统">7. <code>core/log</code> / <code>core/talklog</code> – 日志系统</h3>
+<ul>
+<li>支持终端输出 + 文件写入；</li>
+<li>包含带时间戳的日志打印函数；</li>
+<li>debug 页面可查询日志内容。</li>
+</ul>
+<hr>
+<h2 id="-请求处理流程简述">🧮 请求处理流程简述</h2>
+<pre><code class="language-text">[client request] --&gt; net.Listener (server)
+                  --&gt; goroutine 处理连接
+                    --&gt; 解析 HTTP 请求头
+                    --&gt; 匹配 router
+                      ├── 静态文件
+                      ├── CGI 执行
+                      ├── 注册处理器（如 debug）
+                    --&gt; 返回 HTTP 响应
+                    --&gt; 记录日志
+</code></pre>
+<h2 id=""><img src="file:////home/doraemon/Workspace/xjtu_cnlab/assets/http_server_sequence.png" alt="服务器时序图"></h2>
+<h2 id="-模块扩展建议">🧱 模块扩展建议</h2>
+<table>
+<thead>
+<tr>
+<th>目标</th>
+<th>建议模块</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>添加 RESTful 接口</td>
+<td><code>core/router</code> + <code>core/handler</code></td>
+<td>编写新 handler，并通过 Router 注册路径</td>
+</tr>
+<tr>
+<td>支持 HTTP2 / WebSocket</td>
+<td><code>core/server</code></td>
+<td>更换底层监听器或添加协议升级处理</td>
+</tr>
+<tr>
+<td>增加缓存/防盗链功能</td>
+<td><code>core/util</code> / <code>server</code> 中添加中间件</td>
+<td>实现缓存控制头或 IP 检查</td>
+</tr>
+<tr>
+<td>TLS 热更新证书</td>
+<td><code>core/server</code></td>
+<td>使用 <code>GetCertificate</code> 动态证书加载</td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2 id="-测试示例">🧪 测试示例</h2>
+<ul>
+<li>智能协商返回格式：</li>
+</ul>
+<pre><code class="language-bash">curl -H <span class="hljs-string">&quot;Accept: application/json&quot;</span> http://localhost:8000/debug/routes
+</code></pre>
+<ul>
+<li>强制关闭连接：</li>
+</ul>
+<pre><code class="language-bash">curl -H <span class="hljs-string">&quot;Connection: close&quot;</span> -X GET localhost:8000/cgi-bin/test-echo.py
+</code></pre>
+<hr>
+<blockquote>
+<p>核心模块是独立的、通用的，业务逻辑是外部可插拔的。</p>
+</blockquote>
+
+            
+            
+        </body>
+        </html>
