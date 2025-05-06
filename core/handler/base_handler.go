@@ -64,7 +64,7 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
 		clientAddr = addr.IP.String()
 	}
-	talklog.Info(talklog.GID(), "新连接已建立，客户端地址：%s", clientAddr)
+	// talklog.Info(talklog.GID(), "新连接已建立，客户端地址：%s", clientAddr)
 
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
