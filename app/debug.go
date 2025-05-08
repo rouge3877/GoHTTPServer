@@ -3,6 +3,7 @@ package app
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"runtime"
 	"strconv"
@@ -172,20 +173,13 @@ func HandleLogs(ctx *router.Context) {
 	writer := bufio.NewWriter(conn)
 
 	logs := talklog.GetRecentLogs()
+	body := strings.Join(logs, "\n")
 
-	// 写响应头（加Connection: close）
 	writer.WriteString("HTTP/1.1 200 OK\r\n")
-	writer.WriteString("Content-Type: text/html; charset=utf-8\r\n")
-	writer.WriteString("Connection: close\r\n\r\n")
-
-	// 写HTML内容
-	writer.WriteString("<html><head><title>Server Logs</title></head><body><pre style=\"font-size:13px;\">\n")
-	for _, line := range logs {
-		writer.WriteString(line + "\n")
-	}
-	writer.WriteString("</pre></body></html>")
-
-	writer.Flush() // 确保flush
+	writer.WriteString("Content-Type: text/plain; charset=utf-8\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(body)) + "\r\n\r\n")
+	writer.WriteString(body)
+	writer.Flush()
 }
 
 // 热更新路由
@@ -319,7 +313,7 @@ func HandleConnCounts(ctx *router.Context) {
 	conn := ctx.Conn.(net.Conn)
 	writer := bufio.NewWriter(conn)
 
-	counts := ctx.ConnCount.WgCounter()
+	counts := config.GetConnCount()
 
 	bodyBytes, err := json.MarshalIndent(counts, "", "  ")
 	if err != nil {
@@ -355,4 +349,166 @@ func HandleGortnCounts(ctx *router.Context) {
 	writer.WriteString("\r\n")
 	writer.WriteString(body)
 	writer.Flush()
+}
+
+func HandleDebugMeta(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+
+	uptime := time.Since(config.Cfg.StartTime)
+
+	html := `<html>
+<head>
+	<title>服务器状态</title>
+	<meta charset="utf-8">
+	<style>
+		body { font-family: sans-serif; padding: 20px; background-color: #f5f5f5; }
+		h1 { color: #333; }
+		table { border-collapse: collapse; width: 80%; background-color: #fff; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+		th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+		th { background-color: #f0f0f0; }
+	</style>
+</head>
+<body>
+	<h1>服务器运行信息</h1>
+	<table>
+		<tr><th>项目</th><th>值</th></tr>
+		<tr><td>工作目录</td><td>` + config.Cfg.Server.Workdir + `</td></tr>
+		<tr><td>HTTP端口</td><td>` + strconv.Itoa(config.Cfg.Server.HTTPPort) + `</td></tr>
+		<tr><td>HTTPS端口</td><td>` + strconv.Itoa(config.Cfg.Server.HTTPSPort) + `</td></tr>
+		<tr><td>启用TLS</td><td>` + strconv.FormatBool(config.Cfg.Server.EnableTLS) + `</td></tr>
+		<tr><td>IPv4地址</td><td>` + config.Cfg.Server.IPv4 + `</td></tr>
+		<tr><td>IPv6地址</td><td>` + config.Cfg.Server.IPv6 + `</td></tr>
+		<tr><td>双栈支持</td><td>` + strconv.FormatBool(config.Cfg.Server.IsDualStack) + `</td></tr>
+		<tr><td>运行时间</td><td>` + uptime.String() + `</td></tr>
+		<tr><td>启动时间</td><td>` + config.Cfg.StartTime.Format(time.RFC3339) + `</td></tr>
+		<tr><td>Goroutines数量</td><td>` + strconv.Itoa(runtime.NumGoroutine()) + `</td></tr>
+	`
+
+	// // 连接统计
+	// for k, v := range ctx.ConnCount.WgCounter() {
+	// 	html += `<tr><td>` + k + `连接数</td><td>` + strconv.Itoa(v) + `</td></tr>`
+	// }
+
+	html += `
+	</table>
+</body>
+</html>`
+
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(html)) + "\r\n\r\n")
+	writer.WriteString(html)
+	writer.Flush()
+
+	talklog.Info(talklog.GID(), "Debug meta page requested")
+}
+
+func HandleDebugDashboard(ctx *router.Context) {
+	conn := ctx.Conn.(net.Conn)
+	writer := bufio.NewWriter(conn)
+
+	routes := ctx.RouterAware.GetRouter().ListRoutes()
+	uptime := time.Since(config.Cfg.StartTime)
+
+	var sb strings.Builder
+	sb.WriteString(`<!DOCTYPE html><html><head><title>服务器调试面板</title><style>
+	body { font-family: sans-serif; background: #f9f9f9; padding: 20px; }
+	h1, h2 { color: #333; }
+	pre { background: #eee; padding: 10px; border-radius: 5px; overflow-x: auto; white-space: pre-wrap; }
+	table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+	th, td { border: 1px solid #ccc; padding: 8px 12px; text-align: left; }
+	tr:nth-child(even) { background: #f4f4f4; }
+	details { margin-bottom: 20px; }
+	button { margin-right: 10px; padding: 6px 12px; }
+	input { padding: 6px; width: 100%; margin-bottom: 10px; }
+	mark { background-color: yellow; color: black; }
+	</style>
+	<script>
+	let allLogs = "";
+
+	function escapeHtml(text) {
+		const map = {
+			'&': '&amp;',
+			'<': '&lt;',
+			'>': '&gt;',
+			'"': '&quot;',
+			"'": '&#039;',
+		};
+		return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+	}
+
+	function refreshLogs() {
+		fetch('/logs')
+			.then(resp => resp.text())
+			.then(text => {
+				allLogs = text;
+				filterLogs();
+			})
+			.catch(() => {
+				document.getElementById('logbox').innerHTML = '<span style="color:red;">加载失败</span>';
+			});
+	}
+
+	function filterLogs() {
+		const filter = document.getElementById('logFilter').value.toLowerCase();
+		const lines = allLogs.split('\n');
+		const filtered = lines.filter(line => line.toLowerCase().includes(filter));
+		const highlighted = filtered.map(line => {
+			if (filter === "") return escapeHtml(line);
+			const regex = new RegExp("(" + filter.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ")", "gi");
+			return escapeHtml(line).replace(regex, "<mark>$1</mark>");
+		});
+		document.getElementById('logbox').innerHTML = highlighted.join('<br>');
+	}
+
+	setInterval(refreshLogs, 5000);
+	window.onload = refreshLogs;
+	</script>
+	</head><body>
+	<h1>🛠️ 服务器调试 Dashboard</h1>
+	<div style="margin-bottom:10px;">
+		<button onclick="location.href='/debug/download-logs'">⬇️ 下载日志</button>
+		<button onclick="location.href='/debug/routes?content-type=json'">⬇️ 下载路由表</button>
+	</div>
+	`)
+
+	// 路由表
+	sb.WriteString(`<details open><summary><h2>🟩 路由表</h2></summary><table><tr><th>Method</th><th>Pattern</th><th>Description</th></tr>`)
+	for _, r := range routes {
+		sb.WriteString("<tr><td>" + r.Method + "</td><td>" + r.Pattern + "</td><td>" + r.Description + "</td></tr>")
+	}
+	sb.WriteString("</table></details>")
+
+	// 配置 & 状态
+	sb.WriteString(`<details open><summary><h2>🟦 服务器状态</h2></summary><table>`)
+	sb.WriteString(fmt.Sprintf(`<tr><td>启用TLS</td><td>%v</td></tr>`, config.Cfg.Server.EnableTLS))
+	sb.WriteString(fmt.Sprintf(`<tr><td>IPv4</td><td>%s</td></tr>`, config.Cfg.Server.IPv4))
+	sb.WriteString(fmt.Sprintf(`<tr><td>IPv6</td><td>%s</td></tr>`, config.Cfg.Server.IPv6))
+	sb.WriteString(fmt.Sprintf(`<tr><td>HTTP端口</td><td>%d</td></tr>`, config.Cfg.Server.HTTPPort))
+	sb.WriteString(fmt.Sprintf(`<tr><td>HTTPS端口</td><td>%d</td></tr>`, config.Cfg.Server.HTTPSPort))
+	sb.WriteString(fmt.Sprintf(`<tr><td>工作目录</td><td>%s</td></tr>`, config.Cfg.Server.Workdir))
+	sb.WriteString(fmt.Sprintf(`<tr><td>是否双栈</td><td>%v</td></tr>`, config.Cfg.Server.IsDualStack))
+	sb.WriteString(fmt.Sprintf(`<tr><td>当前运行时间</td><td>%s</td></tr>`, uptime))
+	sb.WriteString(fmt.Sprintf(`<tr><td>启动时间</td><td>%s</td></tr>`, config.Cfg.StartTime.Format(time.RFC3339)))
+	sb.WriteString(fmt.Sprintf(`<tr><td>当前Goroutines</td><td>%d</td></tr>`, runtime.NumGoroutine()))
+	sb.WriteString(fmt.Sprintf(`<tr><td>当前连接总数</td><td>%d</td></tr>`, config.GetConnCount()))
+	sb.WriteString("</table></details>")
+
+	// 日志搜索 + 日志区域
+	sb.WriteString(`<details open><summary><h2>🟥 实时日志（可搜索）</h2></summary>
+	<input type="text" id="logFilter" placeholder="输入关键词过滤日志..." oninput="filterLogs()">
+	<pre id="logbox" style="height: 300px; overflow-y: scroll;"></pre>
+	</details>`)
+
+	sb.WriteString("</body></html>")
+
+	html := sb.String()
+	writer.WriteString("HTTP/1.1 200 OK\r\n")
+	writer.WriteString("Content-Type: text/html; charset=utf-8\r\n")
+	writer.WriteString("Content-Length: " + strconv.Itoa(len(html)) + "\r\n\r\n")
+	writer.WriteString(html)
+	writer.Flush()
+
+	talklog.Info(talklog.GID(), "访问了 /debug/dashboard 调试面板")
 }

@@ -22,7 +22,6 @@ type Context struct {
 	Query       map[string]string
 	Conn        any
 	RouterAware RouterProvider
-	ConnCount   ConnCount
 }
 
 // 表示一个路由规则

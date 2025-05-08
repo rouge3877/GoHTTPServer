@@ -9,6 +9,7 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/handler"
 	"github.com/Singert/xjtu_cnlab/core/server"
+	"github.com/Singert/xjtu_cnlab/core/talklog"
 )
 
 // Serve 开始服务
@@ -31,11 +32,12 @@ func Serve(s server.ServerInterface) error {
 				continue
 			}
 		}
+		talklog.Info(talklog.GID(), "新连接已建立，客户端地址：%s", conn.RemoteAddr().String())
 
 		s.GetHTTPServer().Wg.Add(1)
 		go func(c net.Conn) {
-			s.GetHTTPServer().ConnCount.Add(1)
-			defer s.GetHTTPServer().ConnCount.Add(-1)
+			config.IncConn()
+			defer config.DecConn()
 			defer s.GetHTTPServer().Wg.Done()
 			defer c.Close()
 

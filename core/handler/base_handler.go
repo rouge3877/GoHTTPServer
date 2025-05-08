@@ -16,6 +16,7 @@ import (
 	"github.com/Singert/xjtu_cnlab/core/config"
 	"github.com/Singert/xjtu_cnlab/core/server"
 	"github.com/Singert/xjtu_cnlab/core/talklog"
+	"github.com/Singert/xjtu_cnlab/core/utils"
 )
 
 type ProcessMethod interface {
@@ -50,10 +51,12 @@ type BaseHTTPRequestHandler struct {
 	DefaultRequestVersion string            // 默认请求版本
 	HeadersBuffer         [][]byte          // 响应头缓冲区
 	ProcessMethod         ProcessMethod     // 处理方法接口
-	IsGzip             	  bool              // 是否启用gzip
+	IsGzip                bool              // 是否启用gzip
 
 	Server *server.HTTPServer // 服务器实例
 }
+
+// 替代 h.WFile.Write() 并统计写入的字节数
 
 // NewBaseHTTPRequestHandler 创建一个新的基本HTTP请求处理器
 func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
@@ -61,6 +64,8 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 	if addr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
 		clientAddr = addr.IP.String()
 	}
+	// talklog.Info(talklog.GID(), "新连接已建立，客户端地址：%s", clientAddr)
+
 	return &BaseHTTPRequestHandler{
 		Conn:                  conn,
 		RFile:                 bufio.NewReader(conn),
@@ -68,8 +73,8 @@ func NewBaseHTTPRequestHandler(conn net.Conn) *BaseHTTPRequestHandler {
 		CloseConnection:       true,
 		ServerVersion:         config.GoHTTPServerName() + "/" + strings.Split(config.GoHTTPServerVersion(), " ")[0],
 		SysVersion:            "Go/" + strings.Split(config.GoVersion(), " ")[0],
-		ErrorMessageFormat:    defaultErrorMessageFormat,
-		ErrorContentType:      defaultErrorContentType,
+		ErrorMessageFormat:    utils.DefaultErrorMessageFormat,
+		ErrorContentType:      utils.DefaultErrorContentType,
 		ProtocolVersion:       config.Cfg.Server.Proto,
 		DefaultRequestVersion: "HTTP/1.1",
 		HeadersBuffer:         make([][]byte, 0),
@@ -126,7 +131,7 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 			h.RequestLine = ""
 			h.RequestVersion = ""
 			h.Command = ""
-			h.SendError(REQUEST_URI_TOO_LONG, "")
+			h.SendError(utils.REQUEST_URI_TOO_LONG, "")
 			return
 		}
 
@@ -150,7 +155,7 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		mname := "Do" + h.Command
 		method := h.GetMethod(mname)
 		if method == nil {
-			h.SendError(NOT_IMPLEMENTED, fmt.Sprintf("Unsupported method (%s)", h.Command))
+			h.SendError(utils.NOT_IMPLEMENTED, fmt.Sprintf("Unsupported method (%s)", h.Command))
 			return
 		}
 
@@ -159,7 +164,8 @@ func (h *BaseHTTPRequestHandler) HandleOneRequest() {
 		// 刷新响应
 		h.WFile.Flush()
 
-		talklog.Info(gid, "Request processed successfully: %s %s", h.RequestLine, h.Path)
+		talklog.Info(talklog.GID(), "请求解析完成：%s %s %s", h.Command, h.Path, h.RequestVersion)
+
 	}
 
 	// 捕获超时错误
@@ -254,7 +260,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 
 			// 检查HTTP版本是否支持
 			if major >= 2 {
-				h.SendError(HTTP_VERSION_NOT_SUPPORTED, fmt.Sprintf("Invalid HTTP version (%s)", baseVersionNumber))
+				h.SendError(utils.HTTP_VERSION_NOT_SUPPORTED, fmt.Sprintf("Invalid HTTP version (%s)", baseVersionNumber))
 				return false
 			}
 
@@ -263,14 +269,14 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 		}
 
 		if !try() {
-			h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request version (%s)", version))
+			h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request version (%s)", version))
 			return false
 		}
 	}
 
 	// 检查请求行格式
 	if !(2 <= len(words) && len(words) <= 3) {
-		h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request syntax (%s)", requestLine))
+		h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request syntax (%s)", requestLine))
 		return false
 	}
 
@@ -279,7 +285,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	if len(words) == 2 {
 		h.CloseConnection = true
 		if command != "GET" {
-			h.SendError(BAD_REQUEST, fmt.Sprintf("Bad HTTP/0.9 request type (%s)", command))
+			h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad HTTP/0.9 request type (%s)", command))
 			return false
 		}
 	}
@@ -290,7 +296,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	// 解析查询字符串
 	u, err := url.ParseRequestURI(h.RawURL)
 	if err != nil {
-		h.SendError(BAD_REQUEST, fmt.Sprintf("Bad request URI (%s)", h.RawURL))
+		h.SendError(utils.BAD_REQUEST, fmt.Sprintf("Bad request URI (%s)", h.RawURL))
 		return false
 	}
 	h.Path = u.Path
@@ -312,7 +318,7 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 			} else {
 				msg = "Too many headers"
 			}
-			h.SendError(REQUEST_HEADER_FIELDS_TOO_LARGE, msg, err.Error())
+			h.SendError(utils.REQUEST_HEADER_FIELDS_TOO_LARGE, msg, err.Error())
 			return false
 		}
 	}
@@ -343,8 +349,15 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 	acceptEncoding := h.Headers["Accept-Encoding"]
 	if strings.Contains(acceptEncoding, "gzip") {
 		h.IsGzip = true
+		talklog.Info(talklog.GID(), "客户端支持 gzip 压缩，已启用")
+
 	} else {
 		h.IsGzip = false
+		if h.IsGzip {
+			talklog.Info(talklog.GID(), "客户端支持 gzip 压缩，已启用")
+		} else {
+			talklog.Info(talklog.GID(), "客户端不支持 gzip 压缩")
+		}
 	}
 
 	// 处理Expect头
@@ -360,17 +373,17 @@ func (h *BaseHTTPRequestHandler) ParseRequest(requestLine string) bool {
 
 // HandleExpect100 处理Expect: 100-continue头
 func (h *BaseHTTPRequestHandler) HandleExpect100() bool {
-	h.SendResponseOnly(CONTINUE, "")
+	h.SendResponseOnly(utils.CONTINUE, "")
 	h.EndHeaders()
 	return true
 }
 
 // SendError 发送错误响应
-func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args ...string) {
+func (h *BaseHTTPRequestHandler) SendError(code utils.HTTPStatus, message string, args ...string) {
 	var shortMsg, longMsg string
 
 	// 获取状态码对应的消息
-	if msgs, ok := statusMessages[code]; ok {
+	if msgs, ok := utils.StatusMessages[code]; ok {
 		shortMsg, longMsg = msgs[0], msgs[1]
 	} else {
 		shortMsg, longMsg = "???", "???"
@@ -381,16 +394,16 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 		message = shortMsg
 	}
 
-	// 记录错误
-	h.LogError("code %d, message %s", code, message)
+	talklog.Error(talklog.GID(), "错误响应: code %d, message %s", code, message)
 
 	// 发送响应
 	h.SendResponse(code, message)
+
 	h.SendHeader("Connection", "close")
 
 	// 某些状态码不需要消息体
 	var body []byte
-	if code >= 200 && code != NO_CONTENT && code != RESET_CONTENT && code != NOT_MODIFIED {
+	if code >= 200 && code != utils.NO_CONTENT && code != utils.RESET_CONTENT && code != utils.NOT_MODIFIED {
 		// HTML编码以防止跨站脚本攻击
 		explain := longMsg
 		if len(args) > 0 {
@@ -417,35 +430,27 @@ func (h *BaseHTTPRequestHandler) SendError(code HTTPStatus, message string, args
 	}
 }
 
-// LogError 记录错误
+// LogError 记录错误 FIXME:弃用
 func (h *BaseHTTPRequestHandler) LogError(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
 }
 
 // SendResponse 发送响应
-func (h *BaseHTTPRequestHandler) SendResponse(code HTTPStatus, message string) {
-	contentLength := 0
-	if h.HeadersBuffer != nil {
-		contentLength = len(h.HeadersBuffer)
-	}
-	startTime := time.Now()
+func (h *BaseHTTPRequestHandler) SendResponse(code utils.HTTPStatus, message string) {
 
 	h.LogRequest(code, 0)
 	h.SendResponseOnly(code, message)
 	h.SendHeader("Server", h.VersionString())
 	h.SendHeader("Date", h.DateTimeString())
 
-	duration := time.Since(startTime).Milliseconds()
-
-	talklog.Resp(talklog.GID(), int(code), contentLength, float64(duration))
-
+	talklog.Resp(talklog.GID(), int(code))
 }
 
 // SendResponseOnly 只发送响应行
-func (h *BaseHTTPRequestHandler) SendResponseOnly(code HTTPStatus, message string) {
+func (h *BaseHTTPRequestHandler) SendResponseOnly(code utils.HTTPStatus, message string) {
 	if h.RequestVersion != "HTTP/0.9" {
 		if message == "" {
-			if msgs, ok := statusMessages[code]; ok {
+			if msgs, ok := utils.StatusMessages[code]; ok {
 				message = msgs[0]
 			} else {
 				message = ""
@@ -459,6 +464,8 @@ func (h *BaseHTTPRequestHandler) SendResponseOnly(code HTTPStatus, message strin
 		h.HeadersBuffer = append(h.HeadersBuffer, []byte(fmt.Sprintf("%s %d %s\r\n",
 			h.ProtocolVersion, code, message)))
 	}
+	talklog.Info(talklog.GID(), "发送响应状态行：%s %d %s", h.ProtocolVersion, code, message)
+
 }
 
 // SendHeader 发送HTTP头
@@ -491,6 +498,7 @@ func (h *BaseHTTPRequestHandler) EndHeaders() {
 
 // FlushHeaders 刷新HTTP头
 func (h *BaseHTTPRequestHandler) FlushHeaders() {
+	talklog.Info(talklog.GID(), "已发送 %d 个响应头", len(h.HeadersBuffer))
 	if h.HeadersBuffer != nil {
 		for _, header := range h.HeadersBuffer {
 			h.WFile.Write(header)
@@ -500,7 +508,7 @@ func (h *BaseHTTPRequestHandler) FlushHeaders() {
 }
 
 // LogRequest 记录请求
-func (h *BaseHTTPRequestHandler) LogRequest(code HTTPStatus, size int) {
+func (h *BaseHTTPRequestHandler) LogRequest(code utils.HTTPStatus, size int) {
 	fmt.Printf("%s - - [%s] \"%s\" %d %d\n",
 		h.ClientAddress,
 		h.LogDate(),
@@ -530,23 +538,23 @@ func (h *BaseHTTPRequestHandler) DateTimeString() string {
 // DoPOST 处理POST请求
 func (h *BaseHTTPRequestHandler) DoPOST() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoPUT 处理PUT请求
 func (h *BaseHTTPRequestHandler) DoPUT() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoDELETE 处理DELETE请求
 func (h *BaseHTTPRequestHandler) DoDELETE() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }
 
 // DoOPTIONS 处理OPTIONS请求
 func (h *BaseHTTPRequestHandler) DoOPTIONS() {
 	// 默认实现，子类应该重写此方法
-	h.SendError(NOT_IMPLEMENTED, "Method not implemented")
+	h.SendError(utils.NOT_IMPLEMENTED, "Method not implemented")
 }

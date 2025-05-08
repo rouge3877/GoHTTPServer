@@ -42,21 +42,24 @@ func NewSimpleHTTPRequestHandler(server *server.HTTPServer, conn net.Conn) *Simp
 func (h *SimpleHTTPRequestHandler) DoGET() {
 	gid := talklog.GID()
 	talklog.Info(gid, "Processing GET request for %s", h.Path)
+	talklog.SetPrefix(gid, "ROUTE")
 	talklog.Info(gid, "Finding route for %s", h.Path)
 	if handlerFunc, found := h.Server.Router.MatchRoute(h.Command, h.Path); found {
+		talklog.Info(gid, "Route found for %s", h.Path)
 		ctx := &router.Context{
 			Method:      "GET",
 			Path:        h.Path,
 			Headers:     h.Headers,
 			Conn:        h.Conn,
 			RouterAware: h.Server,
-			ConnCount:   h.Server,
 			Query:       utils.ParseQuery(h.QueryRaw),
 		}
+		talklog.SetPrefix(gid, "")
 		handlerFunc(ctx)
 		h.WFile.Flush()
 		return
 	}
+	talklog.Info(gid, "Trying to serve static file: %s", h.Path)
 	f, err := h.ProcessMethod.SendHead()
 	if err != nil {
 		return
@@ -65,6 +68,7 @@ func (h *SimpleHTTPRequestHandler) DoGET() {
 
 	// 发送文件内容
 	io.Copy(h.WFile, f)
+	talklog.Info(gid, "Static file served successfully: %s", h.Path)
 	h.WFile.Flush()
 }
 
@@ -93,7 +97,9 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 	contentType := h.Headers["Content-Type"]
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(mediaType, "multipart/") {
-		h.SendError(BAD_REQUEST, "Content-Type must be multipart/form-data")
+		h.SendError(utils.BAD_REQUEST, "Content-Type must be multipart/form-data")
+		talklog.Error(talklog.GID(), "File upload error: %v", err)
+
 		return
 	}
 	boundary := params["boundary"]
@@ -111,7 +117,9 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 			break
 		}
 		if err != nil {
-			h.SendError(INTERNAL_SERVER_ERROR, "Error reading multipart data")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Error reading multipart data")
+			talklog.Error(talklog.GID(), "File upload error: %v", err)
+
 			return
 		}
 		var dest string
@@ -126,20 +134,27 @@ func (h *SimpleHTTPRequestHandler) DoPOST() {
 		}
 		dst, err := os.Create(dest)
 		if err != nil {
-			h.SendError(INTERNAL_SERVER_ERROR, "Cannot create file")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Cannot create file")
+			talklog.Error(talklog.GID(), "File upload error: %v", err)
+
 			return
 		}
 		if _, err := io.Copy(dst, part); err != nil {
 			dst.Close()
-			h.SendError(INTERNAL_SERVER_ERROR, "Error saving file")
+			h.SendError(utils.INTERNAL_SERVER_ERROR, "Error saving file")
+			talklog.Error(talklog.GID(), "File upload error: %v", err)
+
 			return
 		}
 		dst.Close()
 		if !uploadDir {
 			break
 		}
+		talklog.Info(talklog.GID(), "File uploaded to %s", dest)
+
 	}
-	h.SendResponse(OK, "Upload successful")
+	h.SendResponse(utils.OK, "Upload successful")
+
 	h.EndHeaders()
 }
 
@@ -160,28 +175,25 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	// 第一阶段：路径检查
 	stat, err := os.Stat(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			h.SendError(NOT_FOUND, "File not found")
-		} else {
-			h.SendError(INTERNAL_SERVER_ERROR, "File error")
-		}
+		h.SendError(utils.NOT_FOUND, "File not found")
+		talklog.Warn(talklog.GID(), "File not found or inaccessible: %s", path)
 		return nil, err
 	}
 
 	// 第二阶段：判断是否是一个对于一个文件夹的请求
 	if stat.IsDir() {
+		talklog.Info(talklog.GID(), "Directory requested: %s", path)
+
+		// 检查是否需要添加尾部斜杠
 		// 检查是否需要添加尾部斜杠
 		if !strings.HasSuffix(h.Path, "/") {
-			// 重构完整URL（保留查询参数）
-			rawURL := h.RequestLine
-			if idx := strings.Index(rawURL, " "); idx != -1 {
-				rawURL = rawURL[:idx]
+			// 构造重定向 URL（保留查询参数）
+			newURL := h.Path + "/"
+			if h.QueryRaw != "" {
+				newURL += "?" + h.QueryRaw
 			}
-			parsedURL, _ := url.Parse(rawURL)
-			parsedURL.Path += "/"
-			newURL := parsedURL.String()
 
-			h.SendResponse(MOVED_PERMANENTLY, "")
+			h.SendResponse(utils.MOVED_PERMANENTLY, "")
 			h.SendHeader("Location", newURL)
 			h.SendHeader("Content-Length", "0")
 			h.EndHeaders()
@@ -200,6 +212,8 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		}
 
 		if !foundIndex {
+			talklog.Info(talklog.GID(), "No index found, generating directory listing for: %s", path)
+
 			// 列目录处理
 			// Make sure ListDirectory returns nil error if it sends response itself
 			tmpFile, listErr := h.ListDirectory(path) // ListDirectory now returns the temp file or error
@@ -227,7 +241,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 			}
 			if !foundIndex {
 				// Should have been handled by ListDirectory returning a file
-				h.SendError(INTERNAL_SERVER_ERROR, "Index file logic error")
+				h.SendError(utils.INTERNAL_SERVER_ERROR, "Index file logic error")
 				return nil, os.ErrNotExist // Or a more specific error
 			}
 			// Proceed to handle the found index file
@@ -236,7 +250,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 
 	// 第三阶段：路径验证 (Check again after potential index file resolution)
 	if strings.HasSuffix(path, "/") || strings.HasSuffix(path, string(filepath.Separator)) {
-		h.SendError(NOT_FOUND, "File not found")
+		h.SendError(utils.NOT_FOUND, "File not found")
 		return nil, os.ErrNotExist
 	}
 
@@ -246,7 +260,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 		if t, err := time.Parse(time.RFC1123, ims); err == nil {
 			t = t.UTC()
 			if !modTime.After(t) {
-				h.SendResponse(NOT_MODIFIED, "")
+				h.SendResponse(utils.NOT_MODIFIED, "")
 				h.EndHeaders()
 				return nil, nil // Return nil, nil for NOT_MODIFIED
 			}
@@ -256,7 +270,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 	// 第五阶段：打开文件
 	f, err = os.Open(path)
 	if err != nil {
-		h.SendError(NOT_FOUND, "File not found")
+		h.SendError(utils.NOT_FOUND, "File not found")
 		return nil, err
 	}
 
@@ -265,6 +279,8 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 
 	if h.IsGzip {
 		tmpF, err := os.CreateTemp("", "gzip*")
+		talklog.Info(talklog.GID(), "Gzip compression enabled for: %s", path)
+
 		if err == nil {
 			// Setup deferred cleanup for the temp file
 			cleanupTemp := true // Flag to control cleanup
@@ -286,12 +302,13 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 					// Get stat of the compressed file
 					if tmpStat, statErr := tmpF.Stat(); statErr == nil {
 						// Compression successful! Send headers for compressed file.
-						h.SendResponse(OK, "")
+						h.SendResponse(utils.OK, "")
 						h.SendHeader("Content-Encoding", "gzip")
 						h.SendHeader("Content-Type", h.GuessType(path))                          // Use original path for type
 						h.SendHeader("Content-Length", strconv.FormatInt(tmpStat.Size(), 10))    // Compressed size
 						h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123)) // Original mod time
 						h.EndHeaders()
+						talklog.Info(talklog.GID(), "File headers sent for: %s", path)
 
 						// We are returning tmpF. Prevent its deferred cleanup.
 						cleanupTemp = false
@@ -299,7 +316,8 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 						f.Close()
 						f = nil             // Ensure the main defer doesn't try to close it again
 						returnedFile = tmpF // Mark tmpF as the returned file
-						return tmpF, nil    // Return the compressed temp file
+						talklog.Info(talklog.GID(), "Served compressed file for %s", path)
+						return tmpF, nil // Return the compressed temp file
 					} else {
 						talklog.Error(talklog.GID(), "Error stating compressed temp file: %v", statErr)
 					}
@@ -311,7 +329,7 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 				// Need to rewind original file 'f' as copy might have consumed it
 				if _, seekErr := f.Seek(0, io.SeekStart); seekErr != nil {
 					talklog.Error(talklog.GID(), "Error rewinding original file after failed compression: %v", seekErr)
-					h.SendError(INTERNAL_SERVER_ERROR, "Failed to process file")
+					h.SendError(utils.INTERNAL_SERVER_ERROR, "Failed to process file")
 					// The main defer will close f
 					return nil, seekErr
 				}
@@ -322,14 +340,16 @@ func (h *SimpleHTTPRequestHandler) SendHead() (*os.File, error) {
 			talklog.Error(talklog.GID(), "Error creating temp file for gzip: %v", err)
 			// Fall through to send original file.
 		}
+	} else {
+		talklog.Info(talklog.GID(), "Gzip not enabled or not applicable for: %s", path)
 	}
-
 	// 第七阶段：发送未压缩文件的头信息 (if gzip not applicable or failed)
-	h.SendResponse(OK, "")
+	h.SendResponse(utils.OK, "")
 	h.SendHeader("Content-Type", h.GuessType(path))
 	h.SendHeader("Content-Length", strconv.FormatInt(stat.Size(), 10)) // Original size
 	h.SendHeader("Last-Modified", stat.ModTime().UTC().Format(time.RFC1123))
 	h.EndHeaders()
+	talklog.Info(talklog.GID(), "File headers sent for: %s", path)
 
 	returnedFile = f // Mark f as the returned file
 	return f, nil    // Return the original file
@@ -394,14 +414,14 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 	// No index file found, proceed with listing
 	d, err := os.Open(path)
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Cannot open directory for listing")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Cannot open directory for listing")
 		return nil, err
 	}
 	defer d.Close()
 
 	files, err := d.Readdir(-1)
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Error reading directory")
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error reading directory")
 		return nil, err
 	}
 
@@ -449,25 +469,32 @@ func (h *SimpleHTTPRequestHandler) ListDirectory(path string) (*os.File, error) 
 	// Create temporary file and write HTML content
 	tmpFile, err := os.CreateTemp("", "dirlist*.html")
 	if err != nil {
-		h.SendError(INTERNAL_SERVER_ERROR, "Error creating temporary file for listing")
+		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
+
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error creating temporary file for listing")
+
 		return nil, err
 	}
 
 	if _, err := tmpFile.WriteString(html); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())
-		h.SendError(INTERNAL_SERVER_ERROR, "Error writing directory listing")
+		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
+
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error writing directory listing")
 		return nil, err
 	}
 	if _, err := tmpFile.Seek(0, 0); err != nil {
 		tmpFile.Close()
 		os.Remove(tmpFile.Name())
-		h.SendError(INTERNAL_SERVER_ERROR, "Error seeking in directory listing file")
+		talklog.Error(talklog.GID(), "Failed to list directory: %s, error: %v", path, err)
+
+		h.SendError(utils.INTERNAL_SERVER_ERROR, "Error seeking in directory listing file")
 		return nil, err
 	}
-
+	talklog.Info(talklog.GID(), "Generated directory listing for: %s", path)
 	// Send response headers *before* returning the file
-	h.SendResponse(OK, "")
+	h.SendResponse(utils.OK, "")
 	h.SendHeader("Content-Type", "text/html; charset=utf-8")
 	h.SendHeader("Content-Length", strconv.Itoa(len(html)))
 	// Add Last-Modified? Maybe based on directory mod time? For now, omit.
